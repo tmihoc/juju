@@ -210,8 +210,11 @@ extensions = [
     # Make it possible to link to related RTD projects using their internal anchors
     # with, e.g., {external+ops:ref}`manage-configurations`:
     'sphinx.ext.intersphinx',
+    'sphinxext.rediraffe',
     ]
 
+# Client-side page redirects.
+rediraffe_redirects = "redirects.txt"
 
 # Excludes files or directories from processing
 
