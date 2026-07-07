@@ -32,6 +32,14 @@ As the differences related to (1) are already documented generically in the rest
 
 ## Notes on `juju add-k8s`
 
+Because Canonical Kubernetes uses its own `k8s kubectl` binary rather than the standard `kubectl`, you must pipe the kubeconfig explicitly:
+
+```text
+sudo k8s kubectl config view --raw | juju add-k8s <cloud name> --client
+```
+
+When piping via stdin, Juju cannot prompt interactively to ask whether to register the cloud on the client or a controller, so you must specify `--client` (or `--controller <name>`) explicitly.
+
 Before you bootstrap:
 
 - Create a custom `containerd` path, e.g., `export containerdBaseDir="/run/containerd-k8s"`.
