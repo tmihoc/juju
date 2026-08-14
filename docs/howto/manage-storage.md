@@ -23,6 +23,10 @@ First, identify the application unit to which you wish to attach the storage. As
 
 Second, prepare a storage directive for your desired storage. For example, given the `ceph-osd` charm and assuming we are in an AWS model, we might have `osd-devices=ebs, 32G, 1`.
 
+```{tip}
+To find the storage label for a charm (e.g. `osd-devices` for `ceph-osd`), check the charm's page on [Charmhub](https://charmhub.io). Each charm that supports storage lists its storage labels, types, and descriptions under **Storage** on the charm's page. You can also run `juju storage` to see storage already provisioned in your model.
+```
+
 Finally, run the `add-storage` command passing as arguments the unit to which storage is to be attached and the storage directive. Drawing on our steps before, we can create a 32GiB EBS volume and attach it to unit `ceph-osd/0` as its OSD storage as below:
 
 ```text
