@@ -1,0 +1,126 @@
+model "MachineSchema" {
+
+  nodes {
+    machine [type: record, label: "machine\n(name, hostname,\nkeep_instance, nonce,\npassword_hash)", ground: "model:machine"]
+    machine_platform [type: record, label: "machine_platform\n(channel)", ground: "model:machine_platform"]
+    machine_parent [type: record, label: "machine_parent", ground: "model:machine_parent"]
+    machine_cloud_instance [type: record, label: "machine_cloud_instance\n(instance_id, arch,\ncpu_cores, mem,\nroot_disk, virt_type)", ground: "model:machine_cloud_instance"]
+    machine_cloud_instance_status [type: record, label: "machine_cloud_instance_status\n(message, data,\nupdated_at)", ground: "model:machine_cloud_instance_status"]
+    machine_status [type: record, label: "machine_status\n(message, data,\nupdated_at)", ground: "model:machine_status"]
+    machine_manual [type: record, label: "machine_manual", ground: "model:machine_manual"]
+    machine_constraint [type: record, label: "machine_constraint", ground: "model:machine_constraint"]
+    machine_reprovision [type: record, label: "machine_reprovision\n(requested_at)", ground: "model:machine_reprovision"]
+    net_node [type: record, label: "net_node", ground: "model:net_node"]
+    availability_zone [type: record, label: "availability_zone\n(name)", ground: "model:availability_zone"]
+    life_alive   [label: "alive"]
+    life_dying   [label: "dying"]
+    life_dead    [label: "dead"]
+    life_removed [label: "removed"]
+  }
+
+  edges {
+    machine -> net_node [type: data, ground: "model:machine.net_node_uuid"]
+    machine_cloud_instance -> machine [type: data, ground: "model:machine_cloud_instance.machine_uuid"]
+    machine_cloud_instance -> availability_zone [type: data, ground: "model:machine_cloud_instance.availability_zone_uuid"]
+    machine_cloud_instance_status -> machine_cloud_instance [type: data, ground: "model:machine_cloud_instance_status.machine_uuid"]
+    machine_constraint -> machine [type: data, ground: "model:machine_constraint.machine_uuid"]
+    machine_manual -> machine [type: data, ground: "model:machine_manual.machine_uuid"]
+    machine_parent -> machine [type: data, ground: "model:machine_parent.machine_uuid"]
+    machine_parent -> machine [type: data, ground: "model:machine_parent.parent_uuid"]
+    machine_platform -> machine [type: data, ground: "model:machine_platform.machine_uuid"]
+    machine_reprovision -> machine [type: data, ground: "model:machine_reprovision.machine_name"]
+    machine_status -> machine [type: data, ground: "model:machine_status.machine_uuid"]
+    life_alive -> life_dying   [type: control]
+    life_dying -> life_dead    [type: control]
+    life_dead  -> life_removed [type: control]
+    life_dying -> life_removed [type: control]
+  }
+
+  behaviours {
+    behaviour "machine-life" {
+      life_alive -> life_dying:   call "removal requested"
+      life_dying -> life_dead:    call "marked dead" [guard: "no containers, units or storage remain"]
+      life_dead  -> life_removed: call "records deleted" [guard: "cloud instance is dead"]
+      life_dying -> life_removed: call "records deleted" [guard: "removal is forced"]
+    }
+  }
+
+  style { extends: juju }
+
+}
+
+diagram "Machine data model" from "MachineSchema" {
+  select {
+    nodes: machine machine_parent machine_cloud_instance machine_cloud_instance_status machine_status machine_manual machine_platform machine_constraint machine_reprovision net_node availability_zone
+    edges: type data
+    labels: hidden
+    sizing: uniform
+    routing: orthogonal
+  }
+  positions {
+    machine_platform above machine gap: 50
+    machine_platform align-centre machine
+    machine_parent left-of machine gap: 60
+    machine_parent align-middle machine
+    machine_cloud_instance right-of machine gap: 60
+    machine_cloud_instance align-middle machine
+    machine_status below machine gap: 50
+    machine_status align-centre machine
+    net_node left-of machine_platform gap: 60
+    net_node align-middle machine_platform
+    machine_constraint right-of machine_platform gap: 60
+    machine_constraint align-middle machine_platform
+    machine_manual left-of machine_status gap: 60
+    machine_manual align-middle machine_status
+    machine_reprovision right-of machine_status gap: 60
+    machine_reprovision align-middle machine_status
+    availability_zone right-of machine_cloud_instance gap: 60
+    availability_zone align-middle machine_cloud_instance
+    machine_cloud_instance_status below availability_zone gap: 50
+    machine_cloud_instance_status align-centre availability_zone
+  }
+}
+
+state "Machine life" from "MachineSchema" {
+  select { behaviour: "machine-life" }
+}
+
+model "MachineConcepts" {
+
+  nodes {
+    mc_model       [type: entity, label: "Model"]
+    mc_machine     [type: entity, label: "Machine"]
+    mc_container   [type: entity, label: "Container machine"]
+    mc_unit        [type: entity, label: "Unit"]
+    mc_application [type: entity, label: "Application"]
+  }
+
+  edges {
+    mc_model     -> mc_machine     [type: association, label: "has many"]
+    mc_machine   -> mc_unit        [type: association, label: "hosts one or more"]
+    mc_unit      -> mc_application [type: association, label: "belongs to one"]
+    mc_container -> mc_machine     [type: association, label: "runs inside one host"]
+  }
+
+  style {
+    extends: juju
+    edge association { arrowhead: none }
+  }
+}
+
+diagram "Machine and its neighbours" from "MachineConcepts" {
+  select {
+    nodes: mc_model mc_machine mc_container mc_unit mc_application
+    edges: type association
+  }
+  positions {
+    mc_machine right-of mc_model gap: 130
+    mc_machine align-middle mc_model
+    mc_unit right-of mc_machine gap: 130
+    mc_unit align-middle mc_machine
+    mc_application right-of mc_unit gap: 130
+    mc_application align-middle mc_unit
+    mc_container below mc_machine gap: 90
+    mc_container align-centre mc_machine
+  }
+}

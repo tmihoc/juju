@@ -1,0 +1,109 @@
+model "ControllerSchema" {
+
+  nodes {
+    controller [type: record, label: "controller\n(target_version,\napi_port, cert,\nca_cert,\nsystem_identity)", ground: "controller:controller"]
+    controller_node [type: record, label: "controller_node\n(dqlite_node_id,\ndqlite_bind_address)", ground: "controller:controller_node"]
+    controller_node_agent_version [type: record, label: "controller_node_agent_version\n(version)", ground: "controller:controller_node_agent_version"]
+    controller_node_password [type: record, label: "controller_node_password\n(password_hash)", ground: "controller:controller_node_password"]
+    controller_api_address [type: record, label: "controller_api_address\n(address, is_agent,\nscope)", ground: "controller:controller_api_address"]
+    controller_agent_address [type: record, label: "controller_agent_address\n(address, scope,\npriority)", ground: "controller:controller_agent_address"]
+    controller_client_address [type: record, label: "controller_client_address\n(address, scope,\npriority)", ground: "controller:controller_client_address"]
+    controller_peer_address [type: record, label: "controller_peer_address\n(address, scope,\npriority)", ground: "controller:controller_peer_address"]
+    model [type: record, label: "model\n(name, qualifier,\nactivated)", ground: "controller:model"]
+    cloud [type: record, label: "cloud\n(name, endpoint)", ground: "controller:cloud"]
+    model_namespace [type: record, label: "model_namespace\n(namespace)", ground: "controller:model_namespace"]
+    object_store_backend [type: record, label: "object_store_backend\n(updated_at)", ground: "controller:object_store_backend"]
+    object_store_backend_s3_config [type: record, label: "object_store_backend_s3_config\n(bucket, region,\nendpoint)", ground: "controller:object_store_backend_s3_config"]
+  }
+
+  edges {
+    controller_node_agent_version -> controller_node [type: data, ground: "controller:controller_node_agent_version.controller_id"]
+    controller_node_password -> controller_node [type: data, ground: "controller:controller_node_password.controller_id"]
+    controller_api_address -> controller_node [type: data, ground: "controller:controller_api_address.controller_id"]
+    controller_agent_address -> controller_node [type: data, ground: "controller:controller_agent_address.controller_id"]
+    controller_client_address -> controller_node [type: data, ground: "controller:controller_client_address.controller_id"]
+    controller_peer_address -> controller_node [type: data, ground: "controller:controller_peer_address.controller_id"]
+    model_namespace -> model [type: data, ground: "controller:model_namespace.model_uuid"]
+    object_store_backend_s3_config -> object_store_backend [type: data, ground: "controller:object_store_backend_s3_config.object_store_backend_uuid"]
+    controller -> model [type: data, ground: "controller:controller.model_uuid"]
+    model -> cloud [type: data, ground: "controller:model.cloud_uuid"]
+  }
+
+  style { extends: juju }
+
+}
+
+diagram "Controller data model" from "ControllerSchema" {
+  select {
+    nodes: controller controller_node controller_node_agent_version controller_node_password controller_api_address controller_agent_address controller_client_address controller_peer_address model model_namespace cloud object_store_backend object_store_backend_s3_config
+    edges: type data
+    labels: hidden
+    sizing: uniform
+    routing: orthogonal
+  }
+  positions {
+    controller_node_agent_version left-of controller_node gap: 60
+    controller_node_agent_version align-middle controller_node
+    controller_node_password right-of controller_node gap: 60
+    controller_node_password align-middle controller_node
+    controller_api_address above controller_node gap: 50
+    controller_api_address align-centre controller_node
+    controller_agent_address left-of controller_api_address gap: 60
+    controller_agent_address align-middle controller_api_address
+    controller_client_address right-of controller_api_address gap: 60
+    controller_client_address align-middle controller_api_address
+    controller_peer_address below controller_node gap: 50
+    controller_peer_address align-centre controller_node
+    model below controller_peer_address gap: 70
+    model align-centre controller_peer_address
+    controller left-of model gap: 60
+    controller align-middle model
+    cloud right-of model gap: 60
+    cloud align-middle model
+    model_namespace below model gap: 50
+    model_namespace align-centre model
+    object_store_backend below controller gap: 50
+    object_store_backend align-centre controller
+    object_store_backend_s3_config below object_store_backend gap: 50
+    object_store_backend_s3_config align-centre object_store_backend
+  }
+}
+
+model "ControllerConcepts" {
+
+  nodes {
+    cc_controller [type: entity, label: "Controller"]
+    cc_model      [type: entity, label: "Model"]
+    cc_cloud      [type: entity, label: "Cloud"]
+    cc_credential [type: entity, label: "Credential"]
+  }
+
+  edges {
+    cc_controller -> cc_model      [type: association, label: "serves many"]
+    cc_model      -> cc_cloud      [type: association, label: "is on one"]
+    cc_controller -> cc_cloud      [type: association, label: "runs on one, knows many"]
+    cc_model      -> cc_credential [type: association, label: "uses one, where needed"]
+    cc_credential -> cc_cloud      [type: association, label: "is for one"]
+  }
+
+  style {
+    extends: juju
+    edge association { arrowhead: none }
+  }
+}
+
+diagram "Controller and its neighbours" from "ControllerConcepts" {
+  select {
+    nodes: cc_controller cc_model cc_cloud cc_credential
+    edges: type association
+    routing: orthogonal
+  }
+  positions {
+    cc_model right-of cc_controller gap: 140
+    cc_model align-middle cc_controller
+    cc_cloud right-of cc_model gap: 140
+    cc_cloud align-middle cc_model
+    cc_credential below cc_model gap: 90
+    cc_credential align-centre cc_model
+  }
+}

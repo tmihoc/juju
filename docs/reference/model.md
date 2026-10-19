@@ -23,11 +23,26 @@ You add, configure, or remove a model through one of Juju's clients.
 
 - **Adding:** Adding a model requires {ref}`cloud add-model access <user-access-cloud-add-model>`.
   - *Rule:* The model name is not empty, and the qualifier (its owner) must be a valid user name: `admin`, or `alice@external` for a {ref}`user <user>` from an identity provider.
+  - *Rule:* A model whose name and owner match an existing model is refused with `model already exists` (see {ref}`the model record <the-model-record>`).
   - *Related errors:*
-    - **`model already exists`**: *Trigger:* Creating a model with the same name and owner as an existing one. *Remediation:* Choose another name or owner.
-    - **`model credential not valid`**: *Trigger:* The cloud credential for the model does not validate. *Remediation:* Check the credential against the model's cloud.
-    - **`agent version not supported`**: *Trigger:* The model's target agent version is not supported. *Remediation:* Target a supported agent version.
-    - **`agent stream not valid`**: *Trigger:* The model's agent stream is not valid. *Remediation:* Use a valid agent stream.
+
+    ```{list-table}
+    :header-rows: 1
+    :widths: 30 40 30
+
+    * - Message
+      - Trigger
+      - Remediation
+    * - `model credential not valid`
+      - The cloud credential for the model does not validate.
+      - Check the credential against the model's cloud.
+    * - `agent version not supported`
+      - The model's target agent version is not supported.
+      - Target a supported agent version.
+    * - `agent stream not valid`
+      - The model's agent stream is not valid.
+      - Use a valid agent stream.
+    ```
 - **Configuring:** Model configuration is set through a client.
   - *Rule:* Model configuration keys must be known keys, and their values must pass the schema validation (a `validation error` naming the invalid attributes).
 - **Removing:** A model is destroyed through a client (see {ref}`model removal <the-model-removal>`).
@@ -46,6 +61,7 @@ A model has a record in Juju's databases, in two places.
 - **Controller record:** The authoritative record lives in the controller database, identified by its natural key, the model's name plus the {ref}`user <user>` that qualifies it (the **qualifier**, which disambiguates same-named models of different owners). The record carries the model's type, its cloud, region and credential, and the controller-model flag (see {ref}`Types of model <types-of-model>` for what each of those discriminators does).
   - *Rule:* The natural key is unique: a model with the same name and owner cannot be added twice.
   - *Related errors:*
+    - **`model already exists`**: *Trigger:* Adding a model whose name and owner, or whose UUID, match an existing model. *Remediation:* Choose another name or owner.
     - **`model not found`**: *Trigger:* Querying a model by UUID or name that does not exist. *Remediation:* Verify the model exists on the controller.
     - **`secret backend already set`**: *Trigger:* Setting a secret backend on a model record that already has one. *Remediation:* Update the backend instead of setting it again.
     - **`user not found on model`**: *Trigger:* Looking up a user's grant on a model when none exists. *Remediation:* Grant the user access on the model.
@@ -121,6 +137,138 @@ aborted migration rolls the phases back on both sides.
 
 - *Rule:* Importing a model from a 3.6 controller transforms what 4.1 stores differently: a 3.6 consumer proxy carries one offer connection per relation, and the import creates a synthetic application, an offer connection and a consumer record for each of them; annotations and the controller's API addresses land in their 4.1 tables; and secret grants whose relation key no longer resolves are skipped with a warning.
 - *Rule:* The log transfer checkpoints its progress in the migrated model's database. An interrupted transfer resumes from the last checkpoint and may replay records after it, so duplicates are possible and no log is missed.
+- **Model migration:** Migrating moves a model to another controller (for example, with `juju migrate`). The
+  source controller's migration master walks the stages below. At each step it
+  writes a status message, and the controller reports that message, with the
+  migration's start and end times, as part of the model's information. A client
+  shows it; for example, `juju show-model` prints it in its `migration` field. If any stage fails, the
+  migration aborts and the model stays on the source controller.
+
+  The stages, in order, with the status messages each one writes:
+
+  ```{list-table}
+  :header-rows: 1
+  :widths: 16 44 40
+
+  * - Stage
+    - Status message shown
+    - What happens
+  * - Prechecks
+    - `performing source prechecks`, `performing target prechecks`, `quiescing, waiting for agents to report back`
+    - Both controllers check that the migration can proceed. The model's agents then stop their work and are barred from restarting it (the migration code calls this *quiescing*), and the checks repeat once the model is stable.
+  * - Transfer
+    - `exporting model`, `importing model into target controller`, `uploading model binaries into target controller`
+    - The source exports the model; the target imports it and receives its binaries.
+  * - Validation
+    - `validating, waiting for agents to report back`, `checking machines in migrated model`, `activating model in target controller`
+    - The agents validate against the target, the machines are compared with the cloud, and the target activates the model.
+  * - Handover
+    - `successful, waiting for agents to report back`, `transferring ownership of cloud resources to target controller`
+    - The agents re-point to the target and the target takes over the cloud resources.
+  * - Log transfer
+    - `successful, transferring logs to target controller (<n> sent)`, then `successful, transferred logs to target controller (<n> sent)`
+    - The model's logs are copied to the target.
+  * - Cleanup
+    - `successful, removing model from source controller`
+    - The source copy is removed.
+  * - Rollback
+    - `aborted, removing model from target controller: <reason>`
+    - A failure in any earlier stage lands here: the target copy is removed and the model stays on the source.
+  ```
+
+  In the migration code these stages are the phases `QUIESCE`, `IMPORT`,
+  `VALIDATION`, `SUCCESS`, `LOGTRANSFER`, `REAP` and `ABORT`. They are internal:
+  the client reports the status messages, not the phase names.
+
+  When a stage fails, the status message becomes the final `aborted, ...: <reason>`
+  line, and the `<reason>` is one of the messages in the table below. The Stage
+  column names the stage of the table above that raises it, and the rows follow
+  the order of the stages. A reason is often prefixed by the step that failed
+  (`model data transfer failed, <inner>`, `model activation failed, <inner>`).
+
+  ```{list-table}
+  :header-rows: 1
+  :widths: 14 30 30 26
+
+    * - Stage
+      - Message as seen
+      - Trigger
+      - Remediation
+    * - Prechecks (source)
+      - `model is <life>`
+      - The model is dying or dead.
+      - Wait for it to be removed, or cancel its removal.
+    * - Prechecks (source)
+      - `model is being imported as part of another migration`
+      - The model is the target of an unfinished migration.
+      - Wait for that migration to finish or abort.
+    * - Prechecks (source)
+      - `model has revoked credentials`
+      - The model's cloud credential is revoked.
+      - Set a valid credential on the model, then retry.
+    * - Prechecks (source)
+      - `machine <id> is <life>`
+      - A machine (a model machine on the source side, a controller machine on either side) is not alive.
+      - Let the removal finish or bring a machine back, then retry.
+    * - Prechecks (source)
+      - `unit <unit> hasn't joined relation "<key>" yet`
+      - A unit has not entered scope in one of the model's relations.
+      - Wait until the unit has joined, then retry.
+    * - Prechecks (source)
+      - `all charms now require a manifest.yaml file, this model hosts charm(s) with no manifest.yaml file: <list>`
+      - The model runs a charm revision without a manifest.
+      - Refresh the listed applications to a revision that has one.
+    * - Prechecks (source)
+      - `fan networking not supported, remove fan-config "<value>" from migrating model config`
+      - The model config sets `fan-config` or `container-networking-method` (fan networking).
+      - Remove the key from the model config.
+    * - Prechecks (source)
+      - `cannot migrate to controller due to issues:` followed by a list
+      - The upgrade validators found blockers for this model.
+      - Resolve each listed issue.
+    * - Prechecks (source)
+      - `controller: upgrade in progress`
+      - The source controller is upgrading (the controller checks on the source side carry the `controller:` prefix).
+      - Wait for the upgrade to finish.
+    * - Prechecks (target)
+      - `model has higher version than target controller (<model> > <controller>)`
+      - The model's agent version is above the target controller's.
+      - Upgrade the target controller first.
+    * - Prechecks (target)
+      - `source controller has higher version than target controller (<src> > <tgt>)`
+      - The controllers' major or minor versions are incompatible.
+      - Use a target controller at the same or a newer version.
+    * - Prechecks (target)
+      - `model's cloud "<cloud>" not found on target controller`
+      - The target does not have the model's cloud.
+      - Add the cloud to the target controller.
+    * - Prechecks (target)
+      - `model named "<name>" already exists` / `model with same UUID already exists (<uuid>)` / `model is being migrated out of target controller`
+      - The target holds a model with the same name or UUID, or one that is being migrated away.
+      - Rename or remove the clashing model; wait if one is leaving.
+    * - Prechecks (target)
+      - `target controller does not support the model migration format; upgrade the target controller to Juju 4.1 or later`
+      - The target's migration-target facade is older than version 8.
+      - Upgrade the target controller to 4.1 or later.
+    * - Validation
+      - `machine sanity check failed, <n> error(s) found`
+      - After the transfer, the machines Juju lists differ from what the cloud reports.
+      - Reconcile the cloud and Juju (for example remove the leftover instance), then retry.
+    * - Prechecks, Validation, Handover
+      - `<step>, timed out waiting for agents to report` / `<step>, some agents reported failure`
+      - Agents did not report in time, or reported an error. `<step>` is `quiescing`, `validating` or `successful`.
+      - Raise `migration-agent-wait-time`; read the agents' logs.
+    * - Cleanup
+      - `removing exported model failed: <inner>`
+      - The source copy could not be removed after the model went live on the target.
+      - Remove the leftover source model; the migrated model is already live.
+  ```
+
+  Errors that come from the target's import (a missing owner, an unknown
+    credential) are wrapped in `model data transfer failed, <inner>`; their inner
+    messages are listed on the user and credential pages (`user not found`,
+    `credential not found`) and linked from here.
+
 - *Rule:* The target must be a Juju 4.1 (or newer) controller: it must support the migration envelope facade version the source sends (version 8 of the migration target facade). A 4.0 controller cannot be a migration target.
 - *Related errors:*
   - **`target controller does not support the model migration format; upgrade the target controller to Juju 4.1 or later`**: *Trigger:* The prechecks find a target whose migration target facade is older than the envelope needs. *Remediation:* Upgrade the target controller to Juju 4.1 or later.
