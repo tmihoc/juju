@@ -1,0 +1,72 @@
+model "SSHKeySchema" {
+
+  nodes {
+    user [type: record, label: "user", ground: "controller:user"]
+    user_public_ssh_key [type: record, label: "user_public_ssh_key\n(comment, fingerprint,\npublic_key)", ground: "controller:user_public_ssh_key"]
+    ssh_fingerprint_hash_algorithm [type: record, label: "ssh_fingerprint_hash_algorithm\n(md5, sha256)", ground: "controller:ssh_fingerprint_hash_algorithm"]
+    model_authorized_keys [type: record, label: "model_authorized_keys", ground: "controller:model_authorized_keys"]
+    model [type: record, label: "model", ground: "controller:model"]
+  }
+
+  edges {
+    user_public_ssh_key -> user [type: data, ground: "controller:user_public_ssh_key.user_uuid"]
+    user_public_ssh_key -> ssh_fingerprint_hash_algorithm [type: data, ground: "controller:user_public_ssh_key.fingerprint_hash_algorithm_id"]
+    model_authorized_keys -> user_public_ssh_key [type: data, ground: "controller:model_authorized_keys.user_public_ssh_key_id"]
+    model_authorized_keys -> model [type: data, ground: "controller:model_authorized_keys.model_uuid"]
+  }
+
+  style { extends: juju }
+
+}
+
+diagram "SSH key data model" from "SSHKeySchema" {
+  select {
+    nodes: user user_public_ssh_key ssh_fingerprint_hash_algorithm model_authorized_keys model
+    edges: type data
+    labels: hidden
+    sizing: uniform
+    routing: orthogonal
+  }
+  positions {
+    user_public_ssh_key right-of user gap: 70
+    user_public_ssh_key align-middle user
+    ssh_fingerprint_hash_algorithm below user_public_ssh_key gap: 50
+    ssh_fingerprint_hash_algorithm align-centre user_public_ssh_key
+    model_authorized_keys right-of user_public_ssh_key gap: 70
+    model_authorized_keys align-middle user_public_ssh_key
+    model right-of model_authorized_keys gap: 70
+    model align-middle model_authorized_keys
+  }
+}
+
+model "SSHKeyConcepts" {
+
+  nodes {
+    sk_user  [type: entity, label: "User"]
+    sk_key   [type: entity, label: "SSH key"]
+    sk_model [type: entity, label: "Model"]
+  }
+
+  edges {
+    sk_user -> sk_key   [type: association, label: "owns many"]
+    sk_key  -> sk_model [type: association, label: "authorised on many"]
+  }
+
+  style {
+    extends: juju
+    edge association { arrowhead: none }
+  }
+}
+
+diagram "SSH key and its neighbours" from "SSHKeyConcepts" {
+  select {
+    nodes: sk_user sk_key sk_model
+    edges: type association
+  }
+  positions {
+    sk_key right-of sk_user gap: 130
+    sk_key align-middle sk_user
+    sk_model right-of sk_key gap: 130
+    sk_model align-middle sk_key
+  }
+}
