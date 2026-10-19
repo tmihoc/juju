@@ -28,22 +28,6 @@ A LXD container is named after its host machine: `0/lxd/5` is LXD container `5` 
 
 A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` of one or more {ref}`applications <application>`, usually one. A container machine runs inside a host machine, and a host can run many containers. A machine's cloud instance sits on the model's cloud. Each machine runs a {ref}`machine agent <machine-agent>`, the program that carries out the machine's side of Juju's changes: it reports the machine's health, starts the {ref}`unit agents <unit-agent>` of its units and marks the machine `dead` when its removal is under way.
 
-(machine-agent)=
-## Machine agent
-
-The **machine agent** is the program that runs on a machine: a {ref}`jujuagentd <jujuagentd>` process that `systemd` keeps running. It connects to the {ref}`controller <controller>`'s API server as the machine, with the password whose hash the machine's primary record holds, and its workers act on the machine's records and on the machine itself. On a controller machine it is also the {ref}`controller agent <controller-agent>`, and the controller-only workers run beside the ones below.
-
-- **Machine lifecycle (`machiner`):** Reports the machine `started`, keeps its observed network configuration up to date and marks it `dead` when it is removed (see {ref}`machine removal <the-machine-removal>`).
-- **Unit agents (`deployer`):** Starts a {ref}`unit agent <unit-agent>` for each unit assigned to the machine and stops it when the unit is removed. The unit agents run inside the machine agent's process, one engine of workers each.
-- **Containers (`broker-tracker` and `lxd-container-provisioner`):** Provision and remove the {ref}`LXD containers <cloud-lxd>` placed on this machine (see {ref}`machine provisioning <the-machine-provisioning>`).
-- **Reboot (`reboot-executor`):** Reboots or shuts down the machine (see {ref}`machine reboot <the-machine-reboot>`).
-- **Storage (`storage-provisioner`):** Provisions, attaches and detaches the volumes and filesystems of the machine's {ref}`storage <storage>`.
-- **Block devices (`disk-manager`):** Lists the machine's block devices periodically and reports them to the controller.
-- **Actions (`machine-action-runner`):** Runs the actions addressed to the machine.
-- **Upgrades (`upgrader`):** When the model's target agent version changes, fetches that version and restarts the agent into it.
-- **Keys and proxies (`ssh-authkeys-updater`, `host-key-reporter`, `proxy-config-updater`):** Install the model's authorised SSH keys on the machine, report the machine's SSH host keys, and apply the model's proxy settings.
-
-
 (the-machine-in-the-data-model)=
 (machine-persistence-rules)=
 ## Machine data model
@@ -101,6 +85,21 @@ Juju does not poll for changes to machines. Its services publish change streams 
 - **Instance states:** Changes to the machines' life, start times and cloud instances.
 
 Every watcher fires an initial baseline snapshot on creation, followed by notifications on qualifying changes. See {ref}`the watcher pattern <watchers>`.
+
+(machine-agent)=
+## Machine agent
+
+The **machine agent** is the program that runs on a machine: a {ref}`jujuagentd <jujuagentd>` process that `systemd` keeps running. It connects to the {ref}`controller <controller>`'s API server as the machine, with the password whose hash the machine's primary record holds, and its workers act on the machine's records and on the machine itself. On a controller machine it is also the {ref}`controller agent <controller-agent>`, and the controller-only workers run beside the ones below.
+
+- **Machine lifecycle (`machiner`):** Subscribes to the machine life and dependants {ref}`change stream <machine-watchers>`. Reports the machine `started`, keeps its observed network configuration up to date and marks it `dead` when it is removed (see {ref}`machine removal <the-machine-removal>`).
+- **Unit agents (`deployer`):** Starts a {ref}`unit agent <unit-agent>` for each unit assigned to the machine and stops it when the unit is removed. The unit agents run inside the machine agent's process, one engine of workers each.
+- **Containers (`broker-tracker` and `lxd-container-provisioner`):** Subscribe to the container life {ref}`change stream <machine-watchers>`. Provision and remove the {ref}`LXD containers <cloud-lxd>` placed on this machine (see {ref}`machine provisioning <the-machine-provisioning>`).
+- **Reboot (`reboot-executor`):** Reboots or shuts down the machine (see {ref}`machine reboot <the-machine-reboot>`).
+- **Storage (`storage-provisioner`):** Provisions, attaches and detaches the volumes and filesystems of the machine's {ref}`storage <storage>`.
+- **Block devices (`disk-manager`):** Lists the machine's block devices periodically and reports them to the controller.
+- **Actions (`machine-action-runner`):** Runs the actions addressed to the machine.
+- **Upgrades (`upgrader`):** When the model's target agent version changes, fetches that version and restarts the agent into it.
+- **Keys and proxies (`ssh-authkeys-updater`, `host-key-reporter`, `proxy-config-updater`):** Install the model's authorised SSH keys on the machine, report the machine's SSH host keys, and apply the model's proxy settings.
 
 (the-machines-machinery)=
 (machine-execution-rules)=

@@ -17,23 +17,6 @@ One can deploy multiple applications to the same model. Thus, models allow the l
 
 A controller does the work for each model with a set of {ref}`model workers <model-workers>`, which it starts when the model is activated.
 
-(model-workers)=
-## Model workers
-
-On machine clouds a model has no process of its own: the {ref}`controller agent <controller-agent>`'s model worker manager starts an engine of **model workers** for every model that the activated-models {ref}`change stream <the-model-watchers>` reports, and those workers do the controller's work for the model. They request machines from the model's cloud, remove what has been removed, move the model to another controller and keep its records tidy. On Kubernetes the model also gets a model operator, a pod in the model's namespace that represents the model inside the cluster.
-
-In a controller with several {ref}`high-availability <high-availability>` nodes, every node starts the engine and one node at a time runs the workers: the node that holds the model's responsibility lease. The workers pause while the model migrates and stop when it is dead. Those that call the cloud run only while the model's {ref}`credential <credential>` is valid.
-
-- **Machine provisioning (`compute-provisioner`, `instance-poller`, `firewaller`):** On machine models, provision the model's machines, poll the cloud for instance state and manage the model's firewall rules (see {ref}`machine provisioning <the-machine-provisioning>`).
-- **Kubernetes provisioning (`caas-application-provisioner`, `caas-firewaller`, `caas-model-config-manager`, `caas-model-operator`):** On Kubernetes models, create, manage and destroy the Kubernetes resources of each application to match its requested state, and deploy the model operator.
-- **Storage (`storage-provisioner`):** Provisions, attaches and detaches the model-scoped volumes and filesystems of the model's {ref}`storage <storage>`. Each machine agent runs one for machine-scoped storage.
-- **Removal (`removal`):** Runs the scheduled removal jobs that delete the records of removed entities (see {ref}`model removal <the-model-removal>`).
-- **Migration (`migration-master`):** Drives the model's migration to another controller when the model is the source (see {ref}`model migration <the-model-migration>`).
-- **Charms (`charm-revisioner` and `async-charm-downloader`):** Poll Charmhub every 24 hours for new revisions of the model's charms, so that status can show an update, and download charms that are deployed but not yet downloaded.
-- **Cross-model relations (`remote-relation-consumer`):** Manages the relations, and their settings, where one end is a remote application.
-- **Secrets (`secrets-pruner` and `user-secrets-drain-worker`):** Prune obsolete user secret revisions, and move user secrets from the inactive secret backend to the active one.
-- **Housekeeping (`operation-pruner`, `change-stream-pruner`, `unitless`):** Prune stored operation results according to the model configuration, prune the model's change stream, and run the scriptlets of {ref}`applications <application>` that have no units.
-
 (the-models-persistence)=
 (the-model-record)=
 (the-model-persistence-rules)=
@@ -89,6 +72,23 @@ The model domain's watchable service exposes these watch surfaces:
 Every watcher fires once immediately when it is created, the initial
 query being the baseline snapshot, and again on each qualifying change
 (see {ref}`the watcher pattern <watchers>`).
+
+(model-workers)=
+## Model workers
+
+On machine clouds a model has no process of its own: the {ref}`controller agent <controller-agent>`'s model worker manager starts an engine of **model workers** for every model that the activated-models {ref}`change stream <the-model-watchers>` reports, and those workers do the controller's work for the model. They request machines from the model's cloud, remove what has been removed, move the model to another controller and keep its records tidy. On Kubernetes the model also gets a model operator, a pod in the model's namespace that represents the model inside the cluster.
+
+In a controller with several {ref}`high-availability <high-availability>` nodes, every node starts the engine and one node at a time runs the workers: the node that holds the model's responsibility lease. The workers pause while the model migrates and stop when it is dead. Those that call the cloud run only while the model's {ref}`credential <credential>` is valid.
+
+- **Machine provisioning (`compute-provisioner`, `instance-poller`, `firewaller`):** On machine models, provision the model's machines, poll the cloud for instance state and manage the model's firewall rules (see {ref}`machine provisioning <the-machine-provisioning>`).
+- **Kubernetes provisioning (`caas-application-provisioner`, `caas-firewaller`, `caas-model-config-manager`, `caas-model-operator`):** On Kubernetes models, create, manage and destroy the Kubernetes resources of each application to match its requested state, and deploy the model operator.
+- **Storage (`storage-provisioner`):** Provisions, attaches and detaches the model-scoped volumes and filesystems of the model's {ref}`storage <storage>`. Each machine agent runs one for machine-scoped storage.
+- **Removal (`removal`):** Runs the scheduled removal jobs that delete the records of removed entities (see {ref}`model removal <the-model-removal>`).
+- **Migration (`migration-master`):** Drives the model's migration to another controller when the model is the source (see {ref}`model migration <the-model-migration>`).
+- **Charms (`charm-revisioner` and `async-charm-downloader`):** Poll Charmhub every 24 hours for new revisions of the model's charms, so that status can show an update, and download charms that are deployed but not yet downloaded.
+- **Cross-model relations (`remote-relation-consumer`):** Manages the relations, and their settings, where one end is a remote application.
+- **Secrets (`secrets-pruner` and `user-secrets-drain-worker`):** Prune obsolete user secret revisions, and move user secrets from the inactive secret backend to the active one.
+- **Housekeeping (`operation-pruner`, `change-stream-pruner`, `unitless`):** Prune stored operation results according to the model configuration, prune the model's change stream, and run the scriptlets of {ref}`applications <application>` that have no units.
 
 (the-models-declaration)=
 (the-model-declaration-rules)=

@@ -24,24 +24,6 @@ From then on the controller creates and manages {ref}`models <model>`. Each mode
 
 The {ref}`controller model <the-controller-model>` is the one model that runs Juju itself. The controller knows its users, clouds and credentials as a whole, while each model's {ref}`applications <application>`, {ref}`machines <machine>` and {ref}`units <unit>` are stored with that model.
 
-(controller-agent)=
-## Controller agent
-
-The **controller agent** is the program that runs the controller: a {ref}`jujuagentd <jujuagentd>` process, one for each node of the controller. On machine clouds it is the {ref}`machine agent <machine-agent>` of a controller machine, and on Kubernetes it is the agent of the controller container, which has an identity of its own (`controller-<n>`). A controller flag switches on the workers that only the controller needs:
-
-- **API server (`api-server`):** Runs the Juju API server and the HTTP server in front of it.
-- **Database (`db-accessor` and `change-stream`):** Run the embedded Dqlite database and the stream of changes in it that tells {ref}`watchers <watchers>` what changed (see {ref}`database records <controller-database-records>`).
-- **Model worker manager (`model-worker-manager`):** Starts an engine of {ref}`model workers <model-workers>` for every activated model.
-- **Bootstrap (`bootstrap`):** Sets up the initial machine (see {ref}`controller bootstrap <the-controller-operations>`).
-- **Database upgrade (`upgrade-database-runner`):** Runs the steps that bring the database to the running version, then exits.
-- **Undertaker (`undertaker`):** Tears down {ref}`dying models <the-model-removal>`.
-- **Lease expiry (`lease-expiry`):** Deletes leases whose time has passed.
-- **SSH server and tunneler (`ssh-server` and `ssh-tunneler`):** Serve the controller's {ref}`SSH connections <juju-ssh>` and create reverse SSH tunnels to machines.
-- **Control socket (`control-socket`):** A local socket through which the controller charm changes controller settings, such as the SSH server port.
-- **Log router and log sink (`controller-log-router` and `controller-log-sink`):** Route and store the logs of the controller's models.
-- **Singular worker (`is-primary-controller-flag`):** Each controller node runs one, and the node that holds the claim becomes the primary controller. Only the primary runs the workers that must not run in several agents at once, such as the change-stream pruner, secret backend rotation and the API address setter.
-
-
 (the-controller-persistence-rules)=
 ## Controller data model
 
@@ -102,6 +84,23 @@ Juju does not poll for changes to the controller. Its services publish change st
 
 Every watcher fires once immediately when it is created, the initial query being the baseline snapshot, and again on each qualifying change. See {ref}`the watcher pattern <watchers>`.
 
+(controller-agent)=
+## Controller agent
+
+The **controller agent** is the program that runs the controller: a {ref}`jujuagentd <jujuagentd>` process, one for each node of the controller. On machine clouds it is the {ref}`machine agent <machine-agent>` of a controller machine, and on Kubernetes it is the agent of the controller container, which has an identity of its own (`controller-<n>`). A controller flag switches on the workers that only the controller needs:
+
+- **API server (`api-server`):** Runs the Juju API server and the HTTP server in front of it.
+- **Database (`db-accessor` and `change-stream`):** Run the embedded Dqlite database and the stream of changes in it that tells {ref}`watchers <watchers>` what changed (see {ref}`database records <controller-database-records>`).
+- **Model worker manager (`model-worker-manager`):** Subscribes to the activated models {ref}`change stream <the-model-watchers>`. Starts an engine of {ref}`model workers <model-workers>` for every activated model.
+- **Bootstrap (`bootstrap`):** Sets up the initial machine (see {ref}`controller bootstrap <the-controller-operations>`).
+- **Database upgrade (`upgrade-database-runner`):** Runs the steps that bring the database to the running version, then exits.
+- **Undertaker (`undertaker`):** Tears down {ref}`dying models <the-model-removal>`.
+- **Lease expiry (`lease-expiry`):** Deletes leases whose time has passed.
+- **SSH server and tunneler (`ssh-server` and `ssh-tunneler`):** Serve the controller's {ref}`SSH connections <juju-ssh>` and create reverse SSH tunnels to machines.
+- **Control socket (`control-socket`):** A local socket through which the controller charm changes controller settings, such as the SSH server port.
+- **Log router and log sink (`controller-log-router` and `controller-log-sink`):** Route and store the logs of the controller's models.
+- **Singular worker (`is-primary-controller-flag`):** Each controller node runs one, and the node that holds the claim becomes the primary controller. Only the primary runs the workers that must not run in several agents at once, such as the change-stream pruner, secret backend rotation and the API address setter.
+
 (the-controllers-machinery)=
 ## Controller operations
 
@@ -135,4 +134,3 @@ High availability means running more than one controller node. The nodes are the
 ### Controller removal
 
 Destroying a controller needs superuser access. The cloud the controller was bootstrapped on cannot be removed while the controller stands (see {ref}`cloud <cloud>`).
-
