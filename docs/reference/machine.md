@@ -26,7 +26,7 @@ A LXD container is named after its host machine: `0/lxd/5` is LXD container `5` 
 
 ```
 
-A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` of one or more {ref}`applications <application>`, usually one. A container machine runs inside a host machine, and a host can run many containers. A machine's cloud instance sits on the model's cloud. Each machine runs a {ref}`machine agent <machine-agent>`, the program that carries out the machine's side of Juju's changes: it reports the machine's health, starts the {ref}`unit agents <unit-agent>` of its units and marks the machine `dead` when its removal is under way.
+A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` of one or more {ref}`applications <application>`, usually one. A container machine runs inside a host machine, and a host can run many containers. A machine's cloud instance sits on the model's cloud. A machine outlives the request that created it, so Juju keeps its state in records and acts on the records.
 
 (the-machine-in-the-data-model)=
 (machine-persistence-rules)=
@@ -39,7 +39,7 @@ A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` 
 :alt: The machine record points at one net node. The platform, constraint, status, cloud instance, parent, manual and reprovision request records point at the machine, at most one of each except the platform record, and a host machine can be the parent of many containers. The cloud instance record has at most one status record and may point at an availability zone.
 ```
 
-Juju stores everything it knows about a machine in the model's {ref}`database <database>`. One primary record holds the machine's identity, and a few smaller records hold the rest; each of them points back at the primary record.
+Juju records a machine in the model's {ref}`database <database>` the moment it is requested, before any cloud instance exists. One primary record holds the machine's identity, and a few smaller records, each pointing back at it, hold the rest.
 
 - **Machine (`machine`):** The primary record. It holds an internal ID that the other records point at, the name the client types (`0`, `1/lxd/0`), the agent's credentials (a nonce and a password hash), the hostname, and the keep-instance flag, which says whether the cloud instance survives the machine's removal.
   - *Rule:* A machine's name is unique per model. Machine numbers are `0` or positive integers without leading zeros, and containers nest one level deep (`0/lxd/4`, never `0/lxd/0/lxd/0`).
@@ -72,12 +72,12 @@ Juju stores everything it knows about a machine in the model's {ref}`database <d
 
 Machine kinds are not stored. Juju works them out from the records: a container has a parent record, a manual machine has a manual flag, and a controller machine hosts a unit of the `controller` application, runs the {ref}`controller agent <controller-agent>` and runs every model worker.
 
-The machine service inserts the records (`AddMachine`, `SetMachineCloudInstance`), and the removal service carries out the teardown.
+These records change at every stage of a machine's life: the machine service inserts them (`AddMachine`, `SetMachineCloudInstance`) and the removal service tears them down. Whoever acts next on a machine has to learn of each change.
 
 (machine-watchers)=
 ## Machine change streams
 
-Juju does not poll for changes to machines. Its services publish change streams over the machine records, and the workers and agents that act on machines subscribe to them.
+Nothing polls the machine records. Each change to them is published on a change stream, and the workers and agents that act on machines subscribe.
 
 - **Machine life and dependants:** Changes to the machine's life, to the life of its units, and to the removal of the storage the machine provisioned.
 - **Container life:** Changes to the life of the containers on a host.
@@ -89,7 +89,7 @@ Every watcher fires an initial baseline snapshot on creation, followed by notifi
 (machine-agent)=
 ## Machine agent
 
-The **machine agent** is the program that runs on a machine: a {ref}`jujuagentd <jujuagentd>` process that `systemd` keeps running. It connects to the {ref}`controller <controller>`'s API server as the machine, with the password whose hash the machine's primary record holds, and its workers act on the machine's records and on the machine itself. On a controller machine it is also the {ref}`controller agent <controller-agent>`, and the controller-only workers run beside the ones below.
+Of the subscribers, the one closest to the machine is its own agent. The **machine agent** is the program that runs on a machine: a {ref}`jujuagentd <jujuagentd>` process that `systemd` keeps running. It connects to the {ref}`controller <controller>`'s API server as the machine, with the password whose hash the machine's primary record holds, and its workers act on the machine's records and on the machine itself. On a controller machine it is also the {ref}`controller agent <controller-agent>`, and the controller-only workers run beside the ones below.
 
 - **Machine lifecycle (`machiner`):** Subscribes to the machine life and dependants {ref}`change stream <machine-watchers>`. Reports the machine `started`, keeps its observed network configuration up to date and marks it `dead` when it is removed (see {ref}`machine removal <the-machine-removal>`).
 - **Unit agents (`deployer`):** Starts a {ref}`unit agent <unit-agent>` for each unit assigned to the machine and stops it when the unit is removed. The unit agents run inside the machine agent's process, one engine of workers each.
@@ -106,12 +106,12 @@ The **machine agent** is the program that runs on a machine: a {ref}`jujuagentd 
 (machines-and-units)=
 ## Machine operations
 
-Machine operations are shared between the controller and the host machine. The model's {ref}`workers <model-workers>`, which run in the controller, request, provision and remove machines, and the machine agent on each host looks after its own lifecycle and the workload placed on it.
+Every machine operation splits the same way. The model's {ref}`workers <model-workers>`, which run in the controller, act from the cloud's side: they provision the instance and, at the end, delete the records. The machine agent acts from the machine's side: it reports health, runs the units and marks the machine `dead`.
 
 (machine-declaration-rules)=
 ### Machine requests
 
-A client asks the controller for compute in two ways. An **explicit** request creates machines through the controller API, gated on model {ref}`write access <user-access-model-write>`. An **implicit** request is a deploy or add-unit placement, and most machines arise this way. A machine usually hosts one unit, and placing several units of the same or of different applications on one machine saves resources.
+A machine's life starts when a client asks the controller for compute, in one of two ways. An **explicit** request creates machines through the controller API, gated on model {ref}`write access <user-access-model-write>`. An **implicit** request is a deploy or add-unit placement, and most machines arise this way. A machine usually hosts one unit, and placing several units of the same or of different applications on one machine saves resources.
 
 - **Target designations:** Comma-separated lists naming new or existing targets.
   - `0`: an existing machine; `0,4`: machines 0 and 4.
@@ -138,7 +138,7 @@ See also: {ref}`Terraform Provider for Juju | Manage machines <tfjuju:manage-mac
 (the-machine-provisioning)=
 ### Machine provisioning
 
-Provisioning turns a machine record into a running machine. It happens in one of three ways:
+A request leaves only a record. Provisioning turns it into a running machine, in one of three ways:
 
 - **Controller-side provisioning:** The compute provisioner, driven by the model-machines {ref}`change stream <machine-watchers>`, monitors unprovisioned machines, requests cloud instances, and records the instance ID and addresses as they become known.
 - **Agent-side provisioning:** Host machine agents provision and manage local LXD containers through the LXD broker, driven by the container-life {ref}`change stream <machine-watchers>` over the controller API.
@@ -147,7 +147,7 @@ Provisioning turns a machine record into a running machine. It happens in one of
 (the-machine-reboot)=
 ### Machine reboot
 
-The reboot machinery, driven by the instance-states {ref}`change stream <machine-watchers>`, decides whether a machine shuts down, reboots or does nothing: a machine whose parent needs a reboot shuts down, a machine that needs a reboot itself reboots, and otherwise nothing happens.
+Once provisioned, a machine may need to restart. The reboot machinery, driven by the instance-states {ref}`change stream <machine-watchers>`, decides whether a machine shuts down, reboots or does nothing: a machine whose parent needs a reboot shuts down, a machine that needs a reboot itself reboots, and otherwise nothing happens.
 
 - **Nesting:** The reboot lookup supports one level of container nesting.
   - *Related error:*
@@ -155,7 +155,7 @@ The reboot machinery, driven by the instance-states {ref}`change stream <machine
 
 ### Machine reprovisioning
 
-Reprovisioning replaces the cloud instance behind a machine whose instance is lost, and keeps the machine itself. A client asks the controller for it (for example, with `juju reprovision-machine`), and the controller works in three stages.
+A machine can outlive its cloud instance. Reprovisioning replaces an instance that is lost and keeps the machine itself. A client asks the controller for it (for example, with `juju reprovision-machine`), and the controller works in three stages.
 
 - **Eligibility:** Only an `alive` machine that is not a container, a controller machine or a manually provisioned machine, hosts no containers, has no model-scoped storage attached, and has no reprovision request pending (`reprovision request already exists`) is eligible.
   - *Related errors:*
@@ -179,7 +179,7 @@ Reprovisioning replaces the cloud instance behind a machine whose instance is lo
 :alt: A machine is alive, then dying when removal is requested, then dead once it hosts no containers, units or storage, then removed when the removal job deletes its records and the cloud instance is dead. A forced removal goes from dying straight to removed.
 ```
 
-Removing a machine is cooperative:
+A machine's life ends in removal, which is cooperative:
 
 - **Request:** The controller marks the machine `dying`.
 - **Marking dead:** The machiner of the machine agent learns of it through the machine-life and dependants {ref}`change stream <machine-watchers>`, reports the machine `stopped` and asks the controller to mark it `dead`. The controller refuses until the machine hosts no containers, units or storage, and the machiner asks again whenever one of them goes.
