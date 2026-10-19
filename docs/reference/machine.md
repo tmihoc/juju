@@ -26,7 +26,7 @@ A LXD container is named after its host machine: `0/lxd/5` is LXD container `5` 
 
 ```
 
-A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` of one or more {ref}`applications <application>`, usually one. A container machine runs inside a host machine, and a host can run many containers. A machine's cloud instance sits on the model's cloud. A machine outlives the request that created it, so Juju keeps its state in records and acts on the records.
+A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` of one or more {ref}`applications <application>`, usually one. A container machine runs inside a host machine, and a host can run many containers. A machine's cloud instance sits on the model's cloud. A machine outlives the request that created it, so Juju keeps its state in records and acts on the records. The records live in the model's own database. A machine is alive from its creation, dying once its removal is requested and dead once it hosts no containers, units or storage; the removal job then deletes the records (see {ref}`machine removal <the-machine-removal>`).
 
 (the-machine-in-the-data-model)=
 (machine-persistence-rules)=
