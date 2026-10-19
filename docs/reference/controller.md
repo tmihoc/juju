@@ -24,6 +24,25 @@ From then on the controller creates and manages {ref}`models <model>`. Each mode
 
 The {ref}`controller model <the-controller-model>` is the one model that runs Juju itself. The controller knows its users, clouds and credentials as a whole, while each model's {ref}`applications <application>`, {ref}`machines <machine>` and {ref}`units <unit>` are stored with that model.
 
+(controller-agent)=
+## Controller agent
+
+The **controller agent** is the program that runs the controller: a {ref}`jujuagentd <jujuagentd>` process, one for each node of the controller. On machine clouds it is the {ref}`machine agent <machine-agent>` of a controller machine, and on Kubernetes it is the agent of the controller container, which has an identity of its own (`controller-<n>`). A controller flag switches on the workers that only the controller needs:
+
+- **API server (`api-server`):** Runs the Juju API server and the HTTP server in front of it.
+- **Database (`db-accessor` and `change-stream`):** Runs the embedded Dqlite database and the stream of changes in it that tells {ref}`watchers <watchers>` what changed.
+- **Model worker manager (`model-worker-manager`):** Starts an engine of {ref}`model workers <model-workers>` for every activated model.
+- **Bootstrap (`bootstrap`):** Sets up the initial machine, once.
+- **Database upgrade (`upgrade-database-runner`):** Runs the steps that bring the database to the running version, then exits.
+- **Undertaker (`undertaker`):** Tears down {ref}`dying models <the-model-removal>`.
+- **Lease expiry (`lease-expiry`):** Deletes leases whose time has passed.
+- **SSH server and tunneler (`ssh-server` and `ssh-tunneler`):** Serve the controller's {ref}`SSH connections <juju-ssh>` and create reverse SSH tunnels to machines.
+- **Control socket (`control-socket`):** A local socket through which the controller charm changes controller settings, such as the SSH server port.
+- **Log router and log sink (`controller-log-router` and `controller-log-sink`):** Route and store the logs of the controller's models.
+- **Singular worker (`is-primary-controller-flag`):** Each controller node runs one, and the node that holds the claim becomes the primary controller. Only the primary runs the workers that must not run in several agents at once, such as the change-stream pruner, secret backend rotation and the API address setter.
+
+Adding a {ref}`high-availability <high-availability>` node starts another controller agent, which joins the controller's Dqlite cluster.
+
 (the-controller-persistence-rules)=
 ## Controller data model
 
@@ -61,7 +80,7 @@ The controller itself is stored as one record, and the records of everything it 
 - **The `controller` application:** The controller is also an {ref}`application <application>`: the one named `controller`, deployed in the controller model from the `juju-controller` {ref}`charm <charm>`. A single-record marker identifies it, and the database allows only one such marker.
   - *Charm origin:* The charm archive (`controller.charm`) ships in the agent's data directory, and bootstrap deploys it from a local origin at revision 0. If the archive is missing, bootstrap falls back to Charmhub.
   - *Units:* The application runs real units: one created at bootstrap, and one per {ref}`HA node <high-availability>`. A machine is the controller machine when it hosts a unit of this application.
-- **HA nodes (`controller_node`):** One record per Dqlite node in the {ref}`high-availability <high-availability>` cluster, with the node's Dqlite identity and bind address, each unique, and a life of its own (`alive`, `dying` or `dead`). Further records per node hold the agent version it reports (`controller_node_agent_version`), its password (`controller_node_password`), and the addresses it serves on: the API addresses (`controller_api_address`), which let agents re-orient as the cluster changes, and separate addresses for agents, clients and peer controllers (`controller_agent_address`, `controller_client_address`, `controller_peer_address`). High availability does not create a second controller; it adds nodes that run the same controller's database and API. Agent passwords, upgrades, model agents and the change stream also read the node records.
+- **HA nodes (`controller_node`):** One record per Dqlite node in the {ref}`high-availability <high-availability>` cluster, with the node's Dqlite identity and bind address, each unique, and a life of its own (`alive`, `dying` or `dead`). Further records per node hold the agent version it reports (`controller_node_agent_version`), its password (`controller_node_password`), and the addresses it serves on: the API addresses (`controller_api_address`), which let agents re-orient as the cluster changes, and separate addresses for agents, clients and peer controllers (`controller_agent_address`, `controller_client_address`, `controller_peer_address`). High availability does not create a second controller; it adds nodes that run the same controller's database and API. Agent passwords, upgrades, the change stream and the primary controller's workers also read the node records.
   - *Related errors:*
     - **`controller not found`**: *Trigger:* A lookup of a controller node, for example by an agent authenticating or by the upgrader, names a node that does not exist. *Remediation:* Check the node's identifier against the controller's nodes.
     - **`controller address not valid`**: *Trigger:* A controller address is recorded as empty. *Remediation:* Provide a non-empty address.

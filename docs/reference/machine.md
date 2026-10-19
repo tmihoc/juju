@@ -26,7 +26,24 @@ A LXD container is named after its host machine: `0/lxd/5` is LXD container `5` 
 
 ```
 
-A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` of one or more {ref}`applications <application>`, usually one. A container machine runs inside a host machine, and a host can run many containers. A machine's cloud instance sits on the model's cloud.
+A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` of one or more {ref}`applications <application>`, usually one. A container machine runs inside a host machine, and a host can run many containers. A machine's cloud instance sits on the model's cloud. Each machine runs a {ref}`machine agent <machine-agent>`, the program that carries out the machine's side of Juju's changes: it reports the machine's health, starts the {ref}`unit agents <unit-agent>` of its units and marks the machine `dead` when its removal is under way.
+
+(machine-agent)=
+## Machine agent
+
+The **machine agent** is the program that runs on a machine: a {ref}`jujuagentd <jujuagentd>` process that `systemd` keeps running. It connects to the {ref}`controller <controller>`'s API server as the machine, with the password whose hash the machine's primary record holds, and its workers act on the machine's records and on the machine itself. On a controller machine it is also the {ref}`controller agent <controller-agent>`, and the controller-only workers run beside the ones below.
+
+- **Machine lifecycle (`machiner`):** Reports the machine `started` and keeps the machine's observed network configuration up to date. When the machine is `dying`, it reports the machine `stopped` and asks the controller to mark it `dead`, and asks again whenever the machine's units, containers or storage change, until none are left. Then the agent exits.
+- **Unit agents (`deployer`):** Starts a {ref}`unit agent <unit-agent>` for each unit assigned to the machine and stops it when the unit is removed. The unit agents run inside the machine agent's process, one engine of workers each.
+- **Containers (`broker-tracker` and `lxd-container-provisioner`):** Provision and remove the {ref}`LXD containers <cloud-lxd>` placed on this machine.
+- **Reboot (`reboot-executor`):** Reboots or shuts down the machine when the controller's reboot decision for it says so.
+- **Storage (`storage-provisioner`):** Provisions, attaches and detaches the volumes and filesystems of the machine's {ref}`storage <storage>`.
+- **Block devices (`disk-manager`):** Lists the machine's block devices periodically and reports them to the controller.
+- **Actions (`machine-action-runner`):** Runs the actions addressed to the machine.
+- **Upgrades (`upgrader`):** When the model's target agent version changes, fetches that version and restarts the agent into it.
+- **Keys and proxies (`ssh-authkeys-updater`, `host-key-reporter`, `proxy-config-updater`):** Install the model's authorised SSH keys on the machine, report the machine's SSH host keys, and apply the model's proxy settings.
+
+The workers that act for the machine from the controller's side, such as the compute provisioner, belong to the model's {ref}`workers <model-workers>`.
 
 (the-machine-in-the-data-model)=
 (machine-persistence-rules)=
@@ -79,10 +96,10 @@ The machine service inserts the records (`AddMachine`, `SetMachineCloudInstance`
 
 Juju does not poll for changes to machines. Its services publish change streams over the machine records, and the workers and agents that act on machines subscribe to them.
 
-- **Machine life and dependants:** Drives the local shutdown watcher.
-- **Container life:** Drives host-side container provisioning loops.
-- **Model machines:** Drives the compute provisioner.
-- **Instance states:** Drives the instance poller's steady-state mirroring (life, start times, cloud instances) and the reboot machinery.
+- **Machine life and dependants:** Drives the machiner of the machine agent. It fires on changes to the machine's life, to the life of its units, and to the removal of the storage the machine provisioned.
+- **Container life:** Drives the container provisioning of the host's machine agent.
+- **Model machines:** Drives the compute provisioner among the model's {ref}`workers <model-workers>`.
+- **Instance states:** Drives the instance poller among the model's workers, which mirrors life, start times and cloud instances in the steady state, and the reboot machinery.
 
 Every watcher fires an initial baseline snapshot on creation, followed by notifications on qualifying changes. See {ref}`the watcher pattern <watchers>`.
 
@@ -91,7 +108,7 @@ Every watcher fires an initial baseline snapshot on creation, followed by notifi
 (machines-and-units)=
 ## Machine operations
 
-Machine operations are shared between the controller and the host machine. The controller runs background workers that request, provision and remove machines, and the machine agent on each host looks after its own lifecycle and the workload placed on it.
+Machine operations are shared between the controller and the host machine. The model's {ref}`workers <model-workers>`, which run in the controller, request, provision and remove machines, and the machine agent on each host looks after its own lifecycle and the workload placed on it.
 
 (machine-declaration-rules)=
 ### Machine requests
@@ -164,9 +181,8 @@ Reprovisioning replaces the cloud instance behind a machine whose instance is lo
 Removing a machine is cooperative:
 
 - **Request:** The controller marks the machine `dying`.
-- **Shutdown:** The machine's agent learns of it through the machine-life {ref}`change stream <machine-watchers>` and shuts the machine down once its units and storage are gone.
-- **Marking dead:** Once the machine hosts no containers, units or storage, it is marked `dead`.
+- **Marking dead:** The machiner of the machine agent learns of it through the machine-life and dependants {ref}`change stream <machine-watchers>`, reports the machine `stopped` and asks the controller to mark it `dead`. The controller refuses until the machine hosts no containers, units or storage, and the machiner asks again whenever one of them goes.
   - *Related errors:*
     - **`entity still alive`**: *Trigger:* Marking a machine `dead` while its life is still `alive`. *Remediation:* Start the removal first, so the machine becomes `dying`.
     - **`machine has containers`**, **`machine has units`**, **`machine has storage`**: *Trigger:* Marking a machine `dead` while it still hosts containers, units or storage. *Remediation:* Remove or move them first.
-- **Deletion:** Scheduled removal jobs purge the records, and the keep-instance flag decides whether the cloud instance is released.
+- **Deletion:** The model's removal worker runs scheduled removal jobs that purge the records, and the keep-instance flag decides whether the cloud instance is released.

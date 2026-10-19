@@ -1,7 +1,7 @@
 ---
 myst:
   html_meta:
-    description: "Juju model reference: logical workspaces for applications, resources, and configuration. Model declaration, persistence (record, states, types), execution (workers, migration, removal, watchers), and rules."
+    description: "Juju model reference: logical workspaces for applications, resources, and configuration. The workers that act for a model, the records Juju stores about it, the change streams it publishes, and the operations that create, configure, migrate and remove models."
 ---
 
 (model)=
@@ -15,57 +15,45 @@ A model is created on a {ref}`controller <controller>`.  Both the model and the 
 
 One can deploy multiple applications to the same model. Thus, models allow the logical grouping of applications and infrastructure that work together to deliver a service or product.  Moreover, one can apply common {ref}`configurations <configuration>` to a whole model. As such, models allow the low-level storage, compute, network and software components to be reasoned about as a single entity as well.
 
-(the-models-declaration)=
-(the-model-declaration-rules)=
-## Models in the declaration layer
+A controller does the work for each model with a set of {ref}`model workers <model-workers>`, which it starts when the model is activated.
 
-You add, configure, or remove a model through one of Juju's clients.
+(model-workers)=
+## Model workers
 
-- **Adding:** Adding a model requires {ref}`cloud add-model access <user-access-cloud-add-model>`.
-  - *Rule:* The model name is not empty, and the qualifier (its owner) must be a valid user name: `admin`, or `alice@external` for a {ref}`user <user>` from an identity provider.
-  - *Rule:* A model whose name and owner match an existing model is refused with `model already exists` (see {ref}`the model record <the-model-record>`).
-  - *Related errors:*
+On machine clouds a model has no process of its own: the {ref}`controller agent <controller-agent>`'s model worker manager starts an engine of **model workers** for every activated model, and those workers do the controller's work for the model. They request machines from the model's cloud, remove what has been removed, move the model to another controller and keep its records tidy. On Kubernetes the model also gets a model operator, a pod in the model's namespace that represents the model inside the cluster.
 
-    ```{list-table}
-    :header-rows: 1
-    :widths: 30 40 30
+In a controller with several {ref}`high-availability <high-availability>` nodes, every node starts the engine and one node at a time runs the workers: the node that holds the model's responsibility lease. The workers pause while the model migrates and stop when it is dead. Those that call the cloud run only while the model's {ref}`credential <credential>` is valid.
 
-    * - Message
-      - Trigger
-      - Remediation
-    * - `model credential not valid`
-      - The cloud credential for the model does not validate.
-      - Check the credential against the model's cloud.
-    * - `agent version not supported`
-      - The model's target agent version is not supported.
-      - Target a supported agent version.
-    * - `agent stream not valid`
-      - The model's agent stream is not valid.
-      - Use a valid agent stream.
-    ```
-- **Configuring:** Model configuration is set through a client.
-  - *Rule:* Model configuration keys must be known keys, and their values must pass the schema validation (a `validation error` naming the invalid attributes).
-- **Removing:** A model is destroyed through a client (see {ref}`model removal <the-model-removal>`).
-
-```{ibnote}
-See also: {ref}`Juju | Manage models <manage-models>`, {ref}`Juju | Configure a model <configure-a-model>`, {ref}`Terraform Provider for Juju | Manage models <tfjuju:manage-models>`
-```
+- **Machine provisioning (`compute-provisioner`, `instance-poller`, `firewaller`):** On machine models, request machines from the cloud and record the instance ID and addresses, poll the cloud for instance state, and manage the model's firewall rules (see {ref}`machine provisioning <the-machines-machinery>`).
+- **Kubernetes provisioning (`caas-application-provisioner`, `caas-firewaller`, `caas-model-config-manager`, `caas-model-operator`):** On Kubernetes models, create, manage and destroy the Kubernetes resources of each application to match its requested state, and deploy the model operator.
+- **Storage (`storage-provisioner`):** Provisions, attaches and detaches the model-scoped volumes and filesystems of the model's {ref}`storage <storage>`. Each machine agent runs one for machine-scoped storage.
+- **Removal (`removal`):** Runs the scheduled removal jobs that delete the records of removed entities (see {ref}`model removal <the-model-removal>`).
+- **Migration (`migration-master`):** Drives the model's migration to another controller when the model is the source (see {ref}`model migration <the-model-migration>`).
+- **Charms (`charm-revisioner` and `async-charm-downloader`):** Poll Charmhub every 24 hours for new revisions of the model's charms, so that status can show an update, and download charms that are deployed but not yet downloaded.
+- **Cross-model relations (`remote-relation-consumer`):** Manages the relations, and their settings, where one end is a remote application.
+- **Secrets (`secrets-pruner` and `user-secrets-drain-worker`):** Prune obsolete user secret revisions, and move user secrets from the inactive secret backend to the active one.
+- **Housekeeping (`operation-pruner`, `change-stream-pruner`, `unitless`):** Prune stored operation results according to the model configuration, prune the model's change stream, and run the scriptlets of {ref}`applications <application>` that have no units.
 
 (the-models-persistence)=
 (the-model-record)=
 (the-model-persistence-rules)=
-## Models in the persistence layer
+(the-types-of-model)=
+(types-of-model)=
+(iaas-caas-models)=
+(the-controller-model)=
+(regular-model)=
+## Model data model
 
-A model has a record in Juju's databases, in two places.
+A model has records in two places. The controller database holds the model's identity and its life, and the model's own database holds a copy of that identity with everything the model contains.
 
-- **Controller record:** The authoritative record lives in the controller database, identified by its natural key, the model's name plus the {ref}`user <user>` that qualifies it (the **qualifier**, which disambiguates same-named models of different owners). The record carries the model's type, its cloud, region and credential, and the controller-model flag (see {ref}`Types of model <types-of-model>` for what each of those discriminators does).
+- **Controller record (`model` in the controller database):** The authoritative record lives in the controller database, identified by its natural key, the model's name plus the {ref}`user <user>` that qualifies it (the **qualifier**, which disambiguates same-named models of different owners). The record carries the model's type, its cloud, region and credential, and the controller-model flag (see {ref}`types of model <types-of-model>` for what each of those discriminators does).
   - *Rule:* The natural key is unique: a model with the same name and owner cannot be added twice.
   - *Related errors:*
     - **`model already exists`**: *Trigger:* Adding a model whose name and owner, or whose UUID, match an existing model. *Remediation:* Choose another name or owner.
     - **`model not found`**: *Trigger:* Querying a model by UUID or name that does not exist. *Remediation:* Verify the model exists on the controller.
     - **`secret backend already set`**: *Trigger:* Setting a secret backend on a model record that already has one. *Remediation:* Update the backend instead of setting it again.
     - **`user not found on model`**: *Trigger:* Looking up a user's grant on a model when none exists. *Remediation:* Grant the user access on the model.
-- **Life and activation:** The model is created alive. Its life is carried in the **controller** database, the shared alive / dying / dead cycle every entity has, plus an *activated* flag that says the model is live on its controller: a model imported by a {ref}`migration <the-model-migration>` starts unactivated and is activated only once its agents have re-oriented. The removal machinery in the execution layer is what moves a model to dying and dead; the record here stores it. There is no life on the model's own record in the model database: life belongs to the controller database.
+- **Life and activation:** The model is created alive. Its life is carried in the **controller** database, the shared alive / dying / dead cycle every entity has, plus an *activated* flag that says the model is live on its controller: a model imported by a {ref}`migration <the-model-migration>` starts unactivated and is activated only once its agents have re-oriented. The model's removal moves it to dying and dead; the record stores it. There is no life on the model's own record in the model database: life belongs to the controller database.
   - *Related errors:*
     - **`model not activated`**: *Trigger:* Operating on an imported model before its agents have reported success. *Remediation:* Wait for the migration's activation.
     - **`model already activated`**: *Trigger:* Activating a model that is already live on its controller. *Remediation:* None; the model is already serving.
@@ -76,48 +64,79 @@ A model has a record in Juju's databases, in two places.
 - **Model's own records:** The model database also carries the model's own records: its {ref}`configuration <model-configuration>`, its {ref}`constraints <constraint>`, its {ref}`storage pools <storage>` and the target agent version (the agent version the model's machines should run and the latest one known; see {ref}`upgrading your deployment <upgrade-your-deployment>`).
   - *Related error:*
     - **`model constraints not found`**: *Trigger:* Querying the model's constraints record when it does not exist. *Remediation:* Check that the model has constraints set.
+- **Type (a column of `model`):** Derived from the cloud at creation: a Kubernetes cloud makes the model `caas`, and every other cloud makes it `iaas`. A model is one or the other, never both. The type selects the model's workers, which {ref}`secret <secret>` backend its secrets live in, and whether its applications scale by {ref}`pods <application>` or {ref}`machines <machine>`.
+- **Controller-model flag (a column of `model`):** A role, not a type. It marks the model that runs Juju itself.
+  - **The controller model (`controller`):** This is your Juju management model. A Juju deployment will have just one controller model, which is created by default when you create a controller (`juju bootstrap`). It typically contains a single machine, for the controller (the `controller` application). If controller {ref}`high availability <high-availability>` is enabled, then the controller model would contain multiple instances. The `controller` model may also contain certain applications which it makes sense to deploy near the controller, for example the `juju-dashboard` application.
+  - **Regular model:** This is your Juju workload model. A Juju deployment may have many different workload models, which you create explicitly. It is the model where you typically deploy your applications.
 
 **Writers:** The model service in the controller performs the writes: creating a model writes its records in both databases; configuring it rewrites the configuration records; migrating it creates an *importing* model, unactivated until the migration's agents report success (see {ref}`Model migration <the-model-migration>`).
 
-(the-types-of-model)=
-(types-of-model)=
-(iaas-caas-models)=
-### Types of model
+(the-model-watchers)=
+## Model change streams
 
-Unlike the application or the unit, the model record does carry its
-discriminator as a stored column. The model's **type** is derived
-from the cloud at creation: a Kubernetes cloud makes the model
-`caas`; every other cloud makes it `iaas`. A model is one or
-the other, never both. The type is more than a label: it selects the
-machinery the model runs on, down to which {ref}`secret <secret>`
-backend its secrets live in and whether its applications scale by
-{ref}`pods <application>` or {ref}`machines <machine>`. The other
-stored discriminator, the controller-model flag, is a role, not a
-type.
+Juju does not poll for changes to models. Its services publish change streams over the model records, and the workers that act on models subscribe to them.
 
-(the-controller-model)=
-#### The controller model
+The model domain's watchable service exposes these watch surfaces:
 
-**The controller model (`controller`).** This is your Juju management model. A Juju deployment will have just one controller model, which is created by default when you create a controller (`juju bootstrap`). It typically contains a single machine, for the controller (the `controller` application). If controller {ref}`high availability <high-availability>` is enabled, then the controller model would contain multiple instances. The `controller` model may also contain certain applications which it makes sense to deploy near the controller, for example the `juju-dashboard` application.
+- **All models:** The controller database's model records: the
+  Undertaker's surface for models becoming dead.
+- **Activated models:** The models that have finished activating on
+  the controller: it drives the model worker manager, which starts an
+  engine of {ref}`model workers <model-workers>` for each.
+- **Model migration deletions:** The Undertaker's second surface:
+  models deleted by a migration's reap phase.
+- **One model:** Changes to a single model's record.
+- **One model's cloud credential:** The credential a model tracks,
+  so the model can react when the user changes it.
 
-(regular-model)=
-#### Regular model
+Every watcher fires once immediately when it is created, the initial
+query being the baseline snapshot, and again on each qualifying change
+(see {ref}`the watcher pattern <watchers>`).
 
-**Regular model.** This is your Juju workload model. A Juju deployment may have many different workload models, which you create explicitly. It is the model where you typically deploy your applications.
-
+(the-models-declaration)=
+(the-model-declaration-rules)=
 (the-models-execution)=
 (the-model-execution-rules)=
-## Models in the execution layer
+## Model operations
 
-By the time the setting call returns, the record exists and the model's
-workers are already running: a model is one of the entities with
-machinery of its own. The machinery is actors and loops, not locations:
-the controller agent runs one set of workers per model, each an actor
-driving a loop over the model's state; nothing lives "in" the model.
+A client asks the controller to create, configure, migrate or remove a model. The controller records the request, and the model's {ref}`workers <model-workers>`, which watch the model's records, carry out the long-running parts.
 
-- **The model's workers:** The controller agent's model worker manager runs one set per model; its compute provisioner loops over the model's unprovisioned machines, asking the cloud for instances and recording what comes back (see {ref}`machine provisioning <the-machines-machinery>`). The workers are drawn in the controller's worker tree (see {ref}`the agent <agent>`).
-- **The Undertaker:** The controller-level actor whose loop is the dying-model work queue; a dying model is what it tears down (see below).
-- **The migration master:** The source controller's actor for a migration; its loop is the migration's phase machine (see below).
+(model-creation)=
+### Model creation
+
+Creating a model requires {ref}`cloud add-model access <user-access-cloud-add-model>`. By the time the call returns, the records exist and the model's workers are running.
+
+- *Rule:* The model name is not empty, and the qualifier (its owner) must be a valid user name: `admin`, or `alice@external` for a {ref}`user <user>` from an identity provider.
+- *Rule:* A model whose name and owner match an existing model is refused with `model already exists` (see {ref}`the model record <the-model-record>`).
+- *Related errors:*
+
+  ```{list-table}
+  :header-rows: 1
+  :widths: 30 40 30
+
+  * - Message
+    - Trigger
+    - Remediation
+  * - `model credential not valid`
+    - The cloud credential for the model does not validate.
+    - Check the credential against the model's cloud.
+  * - `agent version not supported`
+    - The model's target agent version is not supported.
+    - Target a supported agent version.
+  * - `agent stream not valid`
+    - The model's agent stream is not valid.
+    - Use a valid agent stream.
+  ```
+
+### Model configuration
+
+A client sets model configuration through the controller API.
+
+- *Rule:* Model configuration keys must be known keys, and their values must pass the schema validation (a `validation error` naming the invalid attributes).
+
+```{ibnote}
+See also: {ref}`Juju | Manage models <manage-models>`, {ref}`Juju | Configure a model <configure-a-model>`, {ref}`Terraform Provider for Juju | Manage models <tfjuju:manage-models>`
+```
 
 (the-model-migration)=
 ### Model migration
@@ -125,7 +144,7 @@ driving a loop over the model's state; nothing lives "in" the model.
 A model can be moved between controllers with the migrate operation
 (for example, `juju migrate <model> <target-controller>`). The
 migration is a phase machine driven by the source controller: the
-source's migration master worker quiesces the model's agents (locks them down), sends
+source's {ref}`migration master <model-workers>` worker quiesces the model's agents (locks them down), sends
 the model envelope (the YAML export of the model database plus the
 model's controller-DB data) to the target controller, whose import
 runs as ordered operations with rollback, then lets the agents
@@ -279,7 +298,7 @@ aborted migration rolls the phases back on both sides.
 
 A model is destroyed with `juju destroy-model`. Destruction is the
 largest removal and runs the same cooperative pattern at scale: the
-controller marks the model Dying and wakes the Undertaker worker,
+controller marks the model Dying and wakes the {ref}`Undertaker <controller-agent>` worker,
 which tears the model down in dependency order (applications first,
 then the machines, and the model's Dqlite database last, as the final
 act after all cloud resources are released). The controller never
@@ -292,22 +311,3 @@ deletes its own database; the Undertaker does.
   - **`force required for removal job`**: *Trigger:* Removing the controller model, or an offer that still has connections, without the force option. *Remediation:* Force the removal.
   - **`model has an active migration import claim`**: *Trigger:* A generic removal targets a model that is mid-import. *Remediation:* Abort the import; it tears the imported model down.
   - **`model has persistent storage`**: *Trigger:* Removing a model that holds persistent storage without stating whether to destroy or release it. *Remediation:* Pass the option that destroys or releases the storage.
-
-(the-model-watchers)=
-### Model watchers
-
-The model domain's watchable service exposes these watch surfaces:
-
-- **All models:** The controller database's model records: the
-  Undertaker's surface for models becoming dead.
-- **Activated models:** The models that have finished activating on
-  the controller.
-- **Model migration deletions:** The Undertaker's second surface:
-  models deleted by a migration's reap phase.
-- **One model:** Changes to a single model's record.
-- **One model's cloud credential:** The credential a model tracks,
-  so the model can react when the user changes it.
-
-Every watcher fires once immediately when it is created, the initial
-query being the baseline snapshot, and again on each qualifying change
-(see {ref}`the watcher pattern <watchers>`).
