@@ -181,9 +181,12 @@ A machine can outlive its cloud instance. Reprovisioning replaces an instance th
 
 A machine's life ends in removal, which is cooperative:
 
-- **Request:** The controller marks the machine `dying`.
+- **Request:** The controller marks the machine and its cloud instance `dying`, and schedules a removal job for it. The request takes two parameters: **force**, which makes it cascade, and **wait**, how long a forced removal gives the normal removal to complete before the forced removal job runs (a normal removal job is scheduled at once, the forced one after the wait; a wait without force is ignored).
+  - *Rule:* Without force, the request is refused while the machine hosts containers or units. With force, the containers on the machine, the units on the machine and in its containers, and the storage that the machine owns become `dying` as well, and each gets its own removal job with the same force and wait. Storage attached to a unit but owned by something else is not removed by this request.
+  - *Related errors:*
+    - **`machine has containers`**, **`machine has units`**: *Trigger:* Requesting the removal of a machine that hosts containers or units, without force. *Remediation:* Remove or move them first, or request a forced removal.
 - **Marking dead:** The machiner of the machine agent learns of it through the machine-life and dependants {ref}`change stream <machine-watchers>`, reports the machine `stopped` and asks the controller to mark it `dead`. The controller refuses until the machine hosts no containers, units or storage, and the machiner asks again whenever one of them goes.
   - *Related errors:*
     - **`entity still alive`**: *Trigger:* Marking a machine `dead` while its life is still `alive`. *Remediation:* Start the removal first, so the machine becomes `dying`.
-    - **`machine has containers`**, **`machine has units`**, **`machine has storage`**: *Trigger:* Marking a machine `dead` while it still hosts containers, units or storage. *Remediation:* Remove or move them first.
+    - **`machine has containers`**, **`machine has units`**, **`machine has storage`**: *Trigger:* Marking a machine `dead` while it still hosts containers, units or storage (the same two container and unit errors are raised at the request without force, above). *Remediation:* Remove or move them first.
 - **Deletion:** The model's removal worker runs scheduled removal jobs that purge the records, and the keep-instance flag decides whether the cloud instance is released.
