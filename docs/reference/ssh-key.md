@@ -34,11 +34,11 @@ The controller keeps keys in its own database, together with the users. A key ha
 
 - **User public key (`user_public_ssh_key`):** The key's owner, its comment, its public key text, and its fingerprint with the algorithm that produced it.
   - *Rule:* A user stores the same key, or the same fingerprint, only once.
-  - *Rule:* The comment `juju-system-key` is reserved for Juju. At bootstrap on a machine cloud the controller generates an SSH key of its own with that comment, keeps the private half, and stores the public half in the controller configuration key `system-ssh-keys`, so that it can reach the machines it manages. A user cannot add or import a key that carries the comment.
+  - *Rule:* The comment of the controller's own key is reserved. At bootstrap on a machine cloud the controller generates an SSH key pair, keeps the private half, and stores the public half in the controller configuration key `system-ssh-keys`, so that it can reach the machines it manages. A user cannot add or import a key that carries the same comment.
   - *Related errors:*
     - **`public key already exists`**: *Trigger:* Adding a key that the user has already authorised on the model. *Remediation:* None needed; the key is in place. An import skips such keys without an error.
     - **`invalid public key`**: *Trigger:* Adding or importing a key that is not a valid public key. *Remediation:* Provide the public half of the key, in the format of an `authorized_keys` line.
-    - **`key contains a reserved comment`**: *Trigger:* Adding or importing a key whose comment is `juju-system-key`. *Remediation:* Change the comment.
+    - **`key contains a reserved comment`**: *Trigger:* Adding or importing a key whose comment is the comment of the controller's own key. The client sees the message that the key contains a restricted comment. *Remediation:* Change the comment.
 - **Fingerprint hash algorithm (`ssh_fingerprint_hash_algorithm`):** The allowed values are `md5` and `sha256`. Juju computes and stores `sha256`.
 - **Model authorisation (`model_authorized_keys`):** Links one key to one model.
   - *Rule:* The set of keys that a model effectively authorises leaves out the keys of users who are removed or disabled. The controller derives this set in the view `v_model_authorized_keys`, and the keys stay stored.
@@ -76,4 +76,4 @@ Machine agents have a facade that serves the keys a model authorises, together w
 
 ## SSH key migration
 
-A migration carries a model's authorised keys with the model. When a model arrives from an older controller, whose authorised keys travel in the model configuration, the import drops every key whose comment contains `juju-system-key`, so that the source controller keeps no SSH access to the migrated model.
+A migration carries a model's authorised keys with the model. When a model arrives from an older controller, whose authorised keys travel in the model configuration, the import drops every key whose comment contains the comment of the controller's own key, so that the source controller keeps no SSH access to the migrated model.
