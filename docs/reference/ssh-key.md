@@ -76,4 +76,4 @@ Machine agents have a facade that serves the keys a model authorises, together w
 
 ## SSH key migration
 
-A migration carries a model's authorised keys with the model. An imported key whose comment contains `juju-system-key` is dropped, so that the source controller keeps no access to the migrated model.
+A migration carries a model's authorised keys with the model. The controller keeps a key of its own, with the comment `juju-system-key`, to reach the machines of the models it manages. When a model arrives from an older controller, whose authorised keys travel in the model configuration, the import drops every key whose comment contains `juju-system-key`, so that the source controller keeps no SSH access to the migrated model.
