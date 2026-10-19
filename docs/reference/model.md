@@ -20,11 +20,11 @@ A controller does the work for each model with a set of {ref}`model workers <mod
 (model-workers)=
 ## Model workers
 
-On machine clouds a model has no process of its own: the {ref}`controller agent <controller-agent>`'s model worker manager starts an engine of **model workers** for every activated model, and those workers do the controller's work for the model. They request machines from the model's cloud, remove what has been removed, move the model to another controller and keep its records tidy. On Kubernetes the model also gets a model operator, a pod in the model's namespace that represents the model inside the cluster.
+On machine clouds a model has no process of its own: the {ref}`controller agent <controller-agent>`'s model worker manager starts an engine of **model workers** for every model that the activated-models {ref}`change stream <the-model-watchers>` reports, and those workers do the controller's work for the model. They request machines from the model's cloud, remove what has been removed, move the model to another controller and keep its records tidy. On Kubernetes the model also gets a model operator, a pod in the model's namespace that represents the model inside the cluster.
 
 In a controller with several {ref}`high-availability <high-availability>` nodes, every node starts the engine and one node at a time runs the workers: the node that holds the model's responsibility lease. The workers pause while the model migrates and stop when it is dead. Those that call the cloud run only while the model's {ref}`credential <credential>` is valid.
 
-- **Machine provisioning (`compute-provisioner`, `instance-poller`, `firewaller`):** On machine models, request machines from the cloud and record the instance ID and addresses, poll the cloud for instance state, and manage the model's firewall rules (see {ref}`machine provisioning <the-machines-machinery>`).
+- **Machine provisioning (`compute-provisioner`, `instance-poller`, `firewaller`):** On machine models, provision the model's machines, poll the cloud for instance state and manage the model's firewall rules (see {ref}`machine provisioning <the-machine-provisioning>`).
 - **Kubernetes provisioning (`caas-application-provisioner`, `caas-firewaller`, `caas-model-config-manager`, `caas-model-operator`):** On Kubernetes models, create, manage and destroy the Kubernetes resources of each application to match its requested state, and deploy the model operator.
 - **Storage (`storage-provisioner`):** Provisions, attaches and detaches the model-scoped volumes and filesystems of the model's {ref}`storage <storage>`. Each machine agent runs one for machine-scoped storage.
 - **Removal (`removal`):** Runs the scheduled removal jobs that delete the records of removed entities (see {ref}`model removal <the-model-removal>`).
@@ -78,16 +78,13 @@ Juju does not poll for changes to models. Its services publish change streams ov
 
 The model domain's watchable service exposes these watch surfaces:
 
-- **All models:** The controller database's model records: the
-  Undertaker's surface for models becoming dead.
+- **All models:** Changes to the controller database's model records, including a model becoming dead.
 - **Activated models:** The models that have finished activating on
-  the controller: it drives the model worker manager, which starts an
-  engine of {ref}`model workers <model-workers>` for each.
-- **Model migration deletions:** The Undertaker's second surface:
-  models deleted by a migration's reap phase.
+  the controller.
+- **Model migration deletions:** Models deleted by a migration's reap
+  phase.
 - **One model:** Changes to a single model's record.
-- **One model's cloud credential:** The credential a model tracks,
-  so the model can react when the user changes it.
+- **One model's cloud credential:** Changes to the credential a model tracks.
 
 Every watcher fires once immediately when it is created, the initial
 query being the baseline snapshot, and again on each qualifying change
@@ -298,7 +295,7 @@ aborted migration rolls the phases back on both sides.
 
 A model is destroyed with `juju destroy-model`. Destruction is the
 largest removal and runs the same cooperative pattern at scale: the
-controller marks the model Dying and wakes the {ref}`Undertaker <controller-agent>` worker,
+controller marks the model Dying and the all-models {ref}`change stream <the-model-watchers>` wakes the {ref}`Undertaker <controller-agent>` worker,
 which tears the model down in dependency order (applications first,
 then the machines, and the model's Dqlite database last, as the final
 act after all cloud resources are released). The controller never

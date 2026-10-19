@@ -33,17 +33,16 @@ A machine belongs to one {ref}`model <model>` and hosts the {ref}`units <unit>` 
 
 The **machine agent** is the program that runs on a machine: a {ref}`jujuagentd <jujuagentd>` process that `systemd` keeps running. It connects to the {ref}`controller <controller>`'s API server as the machine, with the password whose hash the machine's primary record holds, and its workers act on the machine's records and on the machine itself. On a controller machine it is also the {ref}`controller agent <controller-agent>`, and the controller-only workers run beside the ones below.
 
-- **Machine lifecycle (`machiner`):** Reports the machine `started` and keeps the machine's observed network configuration up to date. When the machine is `dying`, it reports the machine `stopped` and asks the controller to mark it `dead`, and asks again whenever the machine's units, containers or storage change, until none are left. Then the agent exits.
+- **Machine lifecycle (`machiner`):** Reports the machine `started`, keeps its observed network configuration up to date and marks it `dead` when it is removed (see {ref}`machine removal <the-machine-removal>`).
 - **Unit agents (`deployer`):** Starts a {ref}`unit agent <unit-agent>` for each unit assigned to the machine and stops it when the unit is removed. The unit agents run inside the machine agent's process, one engine of workers each.
-- **Containers (`broker-tracker` and `lxd-container-provisioner`):** Provision and remove the {ref}`LXD containers <cloud-lxd>` placed on this machine.
-- **Reboot (`reboot-executor`):** Reboots or shuts down the machine when the controller's reboot decision for it says so.
+- **Containers (`broker-tracker` and `lxd-container-provisioner`):** Provision and remove the {ref}`LXD containers <cloud-lxd>` placed on this machine (see {ref}`machine provisioning <the-machine-provisioning>`).
+- **Reboot (`reboot-executor`):** Reboots or shuts down the machine (see {ref}`machine reboot <the-machine-reboot>`).
 - **Storage (`storage-provisioner`):** Provisions, attaches and detaches the volumes and filesystems of the machine's {ref}`storage <storage>`.
 - **Block devices (`disk-manager`):** Lists the machine's block devices periodically and reports them to the controller.
 - **Actions (`machine-action-runner`):** Runs the actions addressed to the machine.
 - **Upgrades (`upgrader`):** When the model's target agent version changes, fetches that version and restarts the agent into it.
 - **Keys and proxies (`ssh-authkeys-updater`, `host-key-reporter`, `proxy-config-updater`):** Install the model's authorised SSH keys on the machine, report the machine's SSH host keys, and apply the model's proxy settings.
 
-The workers that act for the machine from the controller's side, such as the compute provisioner, belong to the model's {ref}`workers <model-workers>`.
 
 (the-machine-in-the-data-model)=
 (machine-persistence-rules)=
@@ -96,10 +95,10 @@ The machine service inserts the records (`AddMachine`, `SetMachineCloudInstance`
 
 Juju does not poll for changes to machines. Its services publish change streams over the machine records, and the workers and agents that act on machines subscribe to them.
 
-- **Machine life and dependants:** Drives the machiner of the machine agent. It fires on changes to the machine's life, to the life of its units, and to the removal of the storage the machine provisioned.
-- **Container life:** Drives the container provisioning of the host's machine agent.
-- **Model machines:** Drives the compute provisioner among the model's {ref}`workers <model-workers>`.
-- **Instance states:** Drives the instance poller among the model's workers, which mirrors life, start times and cloud instances in the steady state, and the reboot machinery.
+- **Machine life and dependants:** Changes to the machine's life, to the life of its units, and to the removal of the storage the machine provisioned.
+- **Container life:** Changes to the life of the containers on a host.
+- **Model machines:** Machines added to or removed from the model.
+- **Instance states:** Changes to the machines' life, start times and cloud instances.
 
 Every watcher fires an initial baseline snapshot on creation, followed by notifications on qualifying changes. See {ref}`the watcher pattern <watchers>`.
 
@@ -137,6 +136,7 @@ A client asks the controller for compute in two ways. An **explicit** request cr
 See also: {ref}`Terraform Provider for Juju | Manage machines <tfjuju:manage-machines>`
 ```
 
+(the-machine-provisioning)=
 ### Machine provisioning
 
 Provisioning turns a machine record into a running machine. It happens in one of three ways:
@@ -145,6 +145,7 @@ Provisioning turns a machine record into a running machine. It happens in one of
 - **Agent-side provisioning:** Host machine agents provision and manage local LXD containers through the LXD broker, driven by the container-life {ref}`change stream <machine-watchers>` over the controller API.
 - **Manual provisioning:** The controller renders a setup script, executed externally over SSH, after which the host agent registers itself.
 
+(the-machine-reboot)=
 ### Machine reboot
 
 The reboot machinery, driven by the instance-states {ref}`change stream <machine-watchers>`, decides whether a machine shuts down, reboots or does nothing: a machine whose parent needs a reboot shuts down, a machine that needs a reboot itself reboots, and otherwise nothing happens.
@@ -169,6 +170,7 @@ Reprovisioning replaces the cloud instance behind a machine whose instance is lo
   - *Related error:*
     - **`machine cloud instance changed`**: *Trigger:* The machine's instance differs from the one checked, because a replacement appeared in between. *Remediation:* Retry the request.
 
+(the-machine-removal)=
 ### Machine removal
 
 ```{ggarch}
