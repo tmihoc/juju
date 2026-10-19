@@ -54,6 +54,29 @@ juju retry-provisioning 3 27 57
 See more: {ref}`command-juju-retry-provisioning`
 ```
 
+(reprovision-a-machine)=
+## Reprovision a machine
+
+If the cloud instance behind a machine is lost (for example, because it was deleted outside Juju), you can have Juju replace the instance and keep the machine's identity. To do so, run the `reprovision-machine` command followed by the machine ID. For example:
+
+```text
+juju reprovision-machine 3
+```
+
+Juju first checks that the machine's agent is no longer connected and that the cloud no longer reports the instance as running. It then provisions a replacement instance and creates replacement units, with new unit numbers, on the machine.
+
+```{important}
+Root disk, ephemeral disk, charm-local state, and machine-scoped storage data are not recovered. Juju creates new, empty machine-scoped storage for the replacement instance.
+```
+
+```{note}
+Reprovisioning applies to a top-level machine that a cloud provider provisioned, on a machine cloud. The machine is not a controller machine, hosts no containers, and has no model-scoped storage attached.
+```
+
+```{ibnote}
+See more: {ref}`command-juju-reprovision-machine`
+```
+
 ## List all machines
 
 To see a list of all the available machines, use the `machines` command:
