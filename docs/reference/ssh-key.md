@@ -34,7 +34,7 @@ The controller keeps keys in its own database, together with the users. A key ha
 
 - **User public key (`user_public_ssh_key`):** The key's owner, its comment, its public key text, and its fingerprint with the algorithm that produced it.
   - *Rule:* A user stores the same key, or the same fingerprint, only once.
-  - *Rule:* The comment `juju-system-key` is reserved for Juju. A user cannot add or import a key that carries it.
+  - *Rule:* The comment `juju-system-key` is reserved for Juju. At bootstrap on a machine cloud the controller generates an SSH key of its own with that comment, keeps the private half, and stores the public half in the controller configuration key `system-ssh-keys`, so that it can reach the machines it manages. A user cannot add or import a key that carries the comment.
   - *Related errors:*
     - **`public key already exists`**: *Trigger:* Adding a key that the user has already authorised on the model. *Remediation:* None needed; the key is in place. An import skips such keys without an error.
     - **`invalid public key`**: *Trigger:* Adding or importing a key that is not a valid public key. *Remediation:* Provide the public half of the key, in the format of an `authorized_keys` line.
@@ -76,4 +76,4 @@ Machine agents have a facade that serves the keys a model authorises, together w
 
 ## SSH key migration
 
-A migration carries a model's authorised keys with the model. The controller keeps a key of its own, with the comment `juju-system-key`, to reach the machines of the models it manages. When a model arrives from an older controller, whose authorised keys travel in the model configuration, the import drops every key whose comment contains `juju-system-key`, so that the source controller keeps no SSH access to the migrated model.
+A migration carries a model's authorised keys with the model. When a model arrives from an older controller, whose authorised keys travel in the model configuration, the import drops every key whose comment contains `juju-system-key`, so that the source controller keeps no SSH access to the migrated model.
