@@ -57,21 +57,9 @@ A model has records in two places. The controller database holds the model's ide
 (the-model-watchers)=
 ## Model change streams
 
-Juju does not poll for changes to models. Its services publish change streams over the model records, and the workers that act on models subscribe to them.
+Clients receive no change stream about models: they read the model's state and poll it. Inside the controller, the model workers subscribe to the changes of the model records (a model becoming activated, a model becoming dead, a migration deleting a model). The one stream that crosses a process boundary is the model's cloud credential: agents that talk to the model's cloud receive a notification when the credential the model tracks changes or becomes invalid, which makes them stop calling the cloud until it is valid again (see {ref}`the credential <credential>`).
 
-The model domain's watchable service exposes these watch surfaces:
-
-- **All models:** Changes to the controller database's model records, including a model becoming dead.
-- **Activated models:** The models that have finished activating on
-  the controller.
-- **Model migration deletions:** Models deleted by a migration's reap
-  phase.
-- **One model:** Changes to a single model's record.
-- **One model's cloud credential:** Changes to the credential a model tracks.
-
-Every watcher fires once immediately when it is created, the initial
-query being the baseline snapshot, and again on each qualifying change
-(see {ref}`the watcher pattern <watchers>`).
+Every stream fires once immediately when it is created, the initial query being the baseline snapshot, and again on each qualifying change (see {ref}`the watcher pattern <watchers>`).
 
 (model-workers)=
 ## Model workers
