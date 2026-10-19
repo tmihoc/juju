@@ -83,6 +83,8 @@ Nothing polls the machine records. Each change to them is published on a change 
 - **Container life:** Changes to the life of the containers on a host.
 - **Model machines:** Machines added to or removed from the model.
 - **Instance states:** Changes to the machines' life, start times and cloud instances.
+- **Machine life flag:** Changes to a single machine's life, which an agent uses to run its workers only while the machine is alive.
+- **Cloud instance:** Changes to a single machine's cloud instance record, which the storage provisioner agent follows to learn when the instance exists or changes.
 
 Every watcher fires an initial baseline snapshot on creation, followed by notifications on qualifying changes. See {ref}`the watcher pattern <watchers>`.
 
