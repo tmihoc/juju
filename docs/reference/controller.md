@@ -27,13 +27,6 @@ The {ref}`controller model <the-controller-model>` is the one model that runs Ju
 (the-controller-persistence-rules)=
 ## Controller data model
 
-```{ggarch}
-:file: ../controller.ggarch
-:view: Controller data model
-:caption: A controller's state in the controller database is one controller record, the models it serves and its high-availability nodes. A controller serves many models; each model is on one cloud and a cloud can host many models, so one controller can serve models on several clouds. Each model has one namespace record naming the separate Dqlite database that holds its records. Each node has at most one agent version and one password, and many addresses of each kind: API, agent, client and peer. The object store backend has at most one S3 configuration. The controller record names the controller model by UUID, without a database foreign key, and the controller configuration is a standalone set of key/value records. Brackets list each record's descriptive columns, and every other line is a foreign key in the 4.1 controller schema.
-:alt: The controller record points at the controller model. Each model points at one cloud, and many models can share a cloud. A model is pointed at by one namespace record. A controller node is pointed at by at most one agent version record and one password record, and by many API, agent, client and peer address records. An object store backend is pointed at by at most one S3 configuration record.
-```
-
 A controller's state is stored in two places: first on the machine where you run the Juju client, and then in the controller's own {ref}`database <database>`. The client machine keeps a small set of files that record the controllers, accounts, models, clouds and credentials the client knows about, so that the client can reach a controller once it exists. The controller database holds the controller itself, the models it serves, its high-availability nodes and its configuration.
 
 ### Controller client store
@@ -51,6 +44,13 @@ Bootstrap writes the new controller's entry into these files, and later client c
 (controller-database-records)=
 ### Controller database records
 
+```{ggarch}
+:file: ../controller.ggarch
+:view: Controller data model
+:caption: A controller's state in the controller database is one controller record, the models it serves and its high-availability nodes. A controller serves many models; each model is on one cloud and a cloud can host many models, so one controller can serve models on several clouds. Each model has one namespace record naming the separate Dqlite database that holds its records. Each node has at most one agent version and one password, and many addresses of each kind: API, agent, client and peer. The object store backend has at most one S3 configuration. The controller record names the controller model by UUID, without a database foreign key, and the controller configuration is a standalone set of key/value records. Brackets list each record's descriptive columns, and every other line is a foreign key in the 4.1 controller schema.
+:alt: The controller record points at the controller model. Each model points at one cloud, and many models can share a cloud. A model is pointed at by one namespace record. A controller node is pointed at by at most one agent version record and one password record, and by many API, agent, client and peer address records. An object store backend is pointed at by at most one S3 configuration record.
+```
+
 The controller itself is stored as one record, and the records of everything it manages hang off it:
 
 - **Controller (`controller`):** The controller itself. It holds the controller's UUID, the controller model it lives in, the agent version an {ref}`upgrade <upgrade-your-deployment>` targets, the API port, and the controller's TLS certificate and system identity.
@@ -59,9 +59,6 @@ The controller itself is stored as one record, and the records of everything it 
   - *Related error:*
     - **`controller agent info not found`**: *Trigger:* The controller agent's recorded information is missing. *Remediation:* Check that the controller has finished bootstrapping.
 - **Model registry (`model` and `model_namespace`):** One record per model the controller serves, kept as described in the {ref}`model data model <the-model-record>`. The controller record points at the controller model. Juju works out the controller model, the controller cloud and the controller {ref}`machine <the-machine-in-the-data-model>` from the records around them instead of flagging them.
-- **The `controller` application:** The controller is also an {ref}`application <application>`: the one named `controller`, deployed in the controller model from the `juju-controller` {ref}`charm <charm>`. A single-record marker identifies it, and the database allows only one such marker.
-  - *Charm origin:* The charm archive (`controller.charm`) ships in the agent's data directory, and bootstrap deploys it from a local origin at revision 0. If the archive is missing, bootstrap falls back to Charmhub.
-  - *Units:* The application runs real units: one created at bootstrap, and one per {ref}`HA node <high-availability>`. A machine is the controller machine when it hosts a unit of this application.
 - **HA nodes (`controller_node`):** One record per Dqlite node in the {ref}`high-availability <high-availability>` cluster, with the node's Dqlite identity and bind address, each unique, and a life of its own (`alive`, `dying` or `dead`). Further records per node hold the agent version it reports (`controller_node_agent_version`), its password (`controller_node_password`), and the addresses it serves on: the API addresses (`controller_api_address`), which let agents re-orient as the cluster changes, and separate addresses for agents, clients and peer controllers (`controller_agent_address`, `controller_client_address`, `controller_peer_address`).  Agent passwords, upgrades, the change stream and the primary controller's workers also read the node records.
   - *Related errors:*
     - **`controller not found`**: *Trigger:* A lookup of a controller node, for example by an agent authenticating or by the upgrader, names a node that does not exist. *Remediation:* Check the node's identifier against the controller's nodes.
@@ -69,6 +66,9 @@ The controller itself is stored as one record, and the records of everything it 
     - **`no controller IDs found`**: *Trigger:* A query for controller nodes finds none. *Remediation:* Check that the controller's nodes are recorded.
     - **`no API addresses found`**: *Trigger:* The high-availability request finds no API addresses for the controller nodes. *Remediation:* Check that the nodes have reported the addresses they serve on.
     - **`stale controller membership`**: *Trigger:* Address selection used a controller membership that changed after it was read. *Remediation:* Retry the request.
+- **The `controller` application:** The controller is also an {ref}`application <application>`: the one named `controller`, deployed in the controller model from the `juju-controller` {ref}`charm <charm>`. A single-record marker identifies it, and the database allows only one such marker.
+  - *Charm origin:* The charm archive (`controller.charm`) ships in the agent's data directory, and bootstrap deploys it from a local origin at revision 0. If the archive is missing, bootstrap falls back to Charmhub.
+  - *Units:* The application runs real units: one created at bootstrap, and one per {ref}`HA node <high-availability>`. A machine is the controller machine when it hosts a unit of this application.
 - **Configuration (`controller_config`):** A key/value set of controller-wide settings. Reading it returns the stored keys together with values that Juju computes from the controller record. Provisioning, key updating and model migration also read it.
 - **Storage backends (`object_store_backend` and `object_store_backend_s3_config`):** The controller's persistent data lives in the Dqlite databases and in blob storage. Both default to the controller's filesystem (the `file` object-store backend). An S3-compatible object store such as AWS S3, MicroCeph, or MinIO can take over blob storage, and then the controller database keeps the object-store backend records, with the backend type and, for S3, its endpoint, credentials and region.
 - **The wider record set:** The controller database also holds everything that lives on the controller side instead of per model: {ref}`users <user>`, their {ref}`access levels <user-access-levels>`, {ref}`clouds <cloud>` and {ref}`credentials <credential>`, {ref}`SSH keys <ssh-key>`, {ref}`secret backends <secret-backend>`, leases, and the {ref}`migration <the-model-migration>` bookkeeping. The per-model {ref}`databases <database>` hold the rest.
@@ -87,10 +87,10 @@ Every watcher fires once immediately when it is created, the initial query being
 (controller-agent)=
 ## Controller agent
 
-The **controller agent** is the program that runs the controller: a {ref}`jujuagentd <jujuagentd>` process, one for each node of the controller. On machine clouds it is the {ref}`machine agent <machine-agent>` of a controller machine, and on Kubernetes it is the agent of the controller container, which has an identity of its own (`controller-<n>`). A controller flag switches on the workers that only the controller needs:
+The **controller agent** is the program that runs the controller: a {ref}`jujuagentd <jujuagentd>` process, one for each node of the controller. On machine clouds it is the {ref}`machine agent <machine-agent>` of a controller machine, and on Kubernetes it is the agent of the controller container, which has an identity of its own (`controller-<n>`). It hosts the database that holds the controller's records and publishes the change streams over them, and a controller flag switches on the workers that only the controller needs:
 
-- **API server (`api-server`):** Runs the Juju API server and the HTTP server in front of it.
 - **Database (`db-accessor` and `change-stream`):** Run the embedded Dqlite database and the stream of changes in it that tells {ref}`watchers <watchers>` what changed (see {ref}`database records <controller-database-records>`).
+- **API server (`api-server`):** Runs the Juju API server and the HTTP server in front of it.
 - **Model worker manager (`model-worker-manager`):** Subscribes to the activated models {ref}`change stream <the-model-watchers>`. Starts an engine of {ref}`model workers <model-workers>` for every activated model.
 - **Bootstrap (`bootstrap`):** Sets up the initial machine (see {ref}`controller bootstrap <the-controller-operations>`).
 - **Database upgrade (`upgrade-database-runner`):** Runs the steps that bring the database to the running version, then exits.
@@ -104,7 +104,7 @@ The **controller agent** is the program that runs the controller: a {ref}`jujuag
 (the-controllers-machinery)=
 ## Controller operations
 
-Once running, every verb on a controller is a call over the controller API, and the access level decides who may make it:
+Bootstrap creates the controller. Every later operation is a call over the controller API, and the access level decides who may make it:
 
 - **Login access:** Reading controller state, for example listing controllers.
 - **Superuser access:** Changing the controller's configuration or destroying it.
