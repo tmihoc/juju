@@ -76,11 +76,12 @@ The controller itself is stored as one record, and the records of everything it 
 (the-controller-watchers)=
 ## Controller change streams
 
-Juju does not poll for changes to the controller. Its services publish change streams over the controller records, and the controller's own workers and the agents that need to know subscribe to them.
+Juju does not poll for changes to the controller. Its services publish change streams over the controller records, and the controller's own workers subscribe to them. Two of them reach beyond the controller process.
 
-- **Controller configuration:** Changes to the controller config record and the controller record.
-- **Controller nodes:** Changes to the HA cluster's membership.
-- **The API addresses:** Changes to the addresses the controller's nodes serve on.
+- **API addresses for agents:** Changes to the addresses on which the controller's nodes serve agents. The machine, unit, deployer and proxy-updater agent facades offer it, so an agent that is connected learns of a new controller node or a changed address.
+- **API addresses for clients:** Changes to the addresses on which the controller's nodes serve clients. The facade that controllers use to reach each other for cross-model relations offers it.
+
+The records of the controller configuration and of the HA cluster's membership also publish changes, and the controller's own workers subscribe to them; no client or agent facade offers those streams.
 
 Every watcher fires once immediately when it is created, the initial query being the baseline snapshot, and again on each qualifying change. See {ref}`the watcher pattern <watchers>`.
 
