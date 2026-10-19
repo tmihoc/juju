@@ -13,15 +13,24 @@ On machines, an agent is managed by `systemd`.
 
 ## Types of agents
 
-- **Controller agent:** The agent that runs a {ref}`controller <controller>`. See {ref}`controller-agent`.
-- **Machine agent:** The agent that runs on a {ref}`machine <machine>`. See {ref}`machine-agent`.
-- **Model workers:** The workers that act for a {ref}`model <model>` run inside the controller agent, with a model operator pod for a Kubernetes model. See {ref}`model-workers`.
-- **Unit agent:** The agent of a {ref}`unit <unit>`, described next.
+Agents nest. A controller agent starts an engine of model workers for each model, and a machine agent starts the unit agents of the units on its machine. On a controller machine the machine agent is the controller agent. Each type is described with the entity it runs.
+
+### Controller agent
+
+The `jujuagentd` process of a controller node: it runs the API server, the database and the other workers only a controller needs. See {ref}`controller-agent` on the {ref}`controller <controller>` page.
+
+### Model workers
+
+The workers that act for one {ref}`model <model>`. They run as an engine inside the controller agent, one engine per activated model, and a Kubernetes model also has a model operator pod. See {ref}`model-workers`.
+
+### Machine agent
+
+The `jujuagentd` process on a {ref}`machine <machine>`: it reports the machine's health, runs its containers and its unit agents, and marks the machine dead when it is removed. See {ref}`machine-agent`.
 
 (unit-agent)=
-## Unit agent
+### Unit agent
 
-The unit agent runs a {ref}`unit <unit>`: its `uniter` worker installs the charm and runs its hooks. On machine clouds the machine agent's deployer starts it as an engine of workers inside the machine agent's own process, and on Kubernetes it is a `containeragent` process in the unit's pod.
+The workers of a {ref}`unit <unit>`: its `uniter` worker installs the charm and runs its hooks. On machine clouds the machine agent's deployer starts it as an engine inside the machine agent's own process, and on Kubernetes it is a `containeragent` process in the unit's pod.
 
 ## How agents learn of changes
 
