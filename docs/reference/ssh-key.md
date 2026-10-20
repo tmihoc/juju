@@ -18,9 +18,9 @@ See also: {ref}`manage-ssh-keys`
 :alt: A user owns many SSH keys. An SSH key is authorised on many models.
 ```
 
-An **SSH key** is a public key in the [SSH](https://www.ssh.com/academy/ssh-keys) protocol that a {ref}`user <user>` stores on a {ref}`controller <controller>`. A model authorises a set of keys, and the people who hold the matching private keys can open SSH sessions to the model's machines through the controller (see {ref}`juju-ssh`). Every machine provides an account named `ubuntu` with passwordless sudo privileges, so authorising a key gives root access to the model's machines, and the decision deserves care.
+An **SSH key** is a public key in the [SSH](https://www.ssh.com/academy/ssh-keys) protocol that a {ref}`user <user>` stores on a {ref}`controller <controller>`. A model authorises a set of keys, and the people who hold the matching private keys can open SSH sessions to the model's machines through the controller (see {ref}`juju-ssh`). On the machines that Juju sets up with cloud-init, the account is named `ubuntu` and has passwordless sudo privileges, so authorising a key gives root access to those machines, and the decision deserves care.
 
-The controller keeps keys in its own database, together with the users. A key has no life column. It comes into being when a user adds or imports it, and it goes away when the user deletes it from its last model, when the user is removed, or when the model is removed. A user can have many keys, and a key can be authorised on many models.
+The controller keeps keys in its own database, together with the users. A key has no life column. It comes into being when a user adds or imports it, and it goes away when the user deletes it from its last model or when the user is removed. Removing a model deletes only the authorisations of that model. A user can have many keys, and a key can be authorised on many models.
 
 (ssh-key-data-model)=
 ## SSH key data model
@@ -39,18 +39,18 @@ The controller keeps keys in its own database, together with the users. A key ha
     - **`public key already exists`**: *Trigger:* Adding a key that the user has already authorised on the model. *Remediation:* None needed; the key is in place. An import skips such keys without an error.
     - **`invalid public key`**: *Trigger:* Adding or importing a key that is not a valid public key. *Remediation:* Provide the public half of the key, in the format of an `authorized_keys` line.
     - **`key contains a reserved comment`**: *Trigger:* Adding or importing a key whose comment is the comment of the controller's own key. The client sees the message that the key contains a restricted comment. *Remediation:* Change the comment.
-- **Fingerprint hash algorithm (`ssh_fingerprint_hash_algorithm`):** The allowed values are `md5` and `sha256`. Juju computes and stores `sha256`.
+- **Fingerprint hash algorithm (`ssh_fingerprint_hash_algorithm`):** The allowed values are `md5` and `sha256`, and Juju computes and stores `sha256` for every key.
 - **Model authorisation (`model_authorized_keys`):** Links one key to one model.
   - *Rule:* The set of keys that a model effectively authorises leaves out the keys of users who are removed or disabled. The controller derives this set in the view `v_model_authorized_keys`, and the keys stay stored.
 
 (ssh-key-operations)=
 ## SSH key operations
 
-A client lists, adds, imports and deletes keys through the controller API, authorised for the model it addresses. The keys belong to the authenticated user: the call accepts a user name, and the controller ignores it in favour of the identity that logged in.
+A client lists, adds, imports and deletes keys through the controller API, authorised for the model it addresses. List, add and delete act on the authenticated user: the call accepts a user name, and the controller ignores it in favour of the identity that logged in. Import acts on the user named in the call.
 
 - **List:** Returns the authorised keys of the authenticated user on the model. The caller needs read access to the model. A caller with admin access also qualifies. A client can ask for the full key text or only the fingerprint.
 - **Add:** Stores one or more keys for the authenticated user and authorises them on the model.
-  - *Authority:* Admin access to the model, and the change block must not be on.
+  - *Authority:* Admin access to the model or superuser access to the controller, and the change block must not be on.
   - *Related errors:* `public key already exists`, `invalid public key` and `key contains a reserved comment`, each returned as its own error code (`public key already exists`, `invalid public key`, `invalid public key comment`).
 - **Import:** Fetches the keys of an identity at an outside source and authorises them. The sources are Launchpad (`lp:<name>`) and GitHub (`gh:<name>`).
   - *Authority:* The same as add, and the change block must not be on.
@@ -59,7 +59,7 @@ A client lists, adds, imports and deletes keys through the controller API, autho
     - **`unknown import source`**: *Trigger:* A key id whose prefix is neither `lp:` nor `gh:`. *Remediation:* Use one of the two prefixes.
     - **`import subject not found`**: *Trigger:* The source has no such identity. *Remediation:* Check the spelling of the identity.
 - **Delete:** Removes keys from the model, matched by fingerprint, public key text or comment. A user's key that no model authorises any more is deleted from the user's record too.
-  - *Authority:* Admin access to the model, and neither the remove block nor the change block may be on.
+  - *Authority:* Admin access to the model or superuser access to the controller, and neither the remove block nor the change block may be on.
 - **Removal of a user or a model:** Removing a user deletes the user's keys and their authorisations. Removing a model deletes the model's authorisations.
 
 The command-line client offers `juju add-ssh-key`, `juju import-ssh-key`, `juju ssh-keys` (with `--full` for the key text) and `juju remove-ssh-key`.
