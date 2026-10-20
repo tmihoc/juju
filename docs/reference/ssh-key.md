@@ -77,14 +77,3 @@ Machine agents have a facade that serves the keys a model authorises, together w
 ## SSH key migration
 
 A migration carries a model's authorised keys with the model. When a model arrives from an older controller, whose authorised keys travel in the model configuration, the import drops every key whose comment contains the comment of the controller's own key, so that the source controller keeps no SSH access to the migrated model.
-
-(ssh-key-errors)=
-## SSH key errors
-
-Each error is explained where it arises. This list finds it by its message.
-
-- `public key already exists`: see {ref}`the data model <ssh-key-data-model>` and {ref}`add <ssh-key-operations>`.
-- `invalid public key`: see {ref}`the data model <ssh-key-data-model>`.
-- `key contains a reserved comment` (reported to clients as a restricted comment): see {ref}`the data model <ssh-key-data-model>`.
-- `unknown import source` and `import subject not found`: see {ref}`import <ssh-key-operations>`.
-- `public key ... is not associated with model ...`: see {ref}`authentication <ssh-key-authentication>`.
