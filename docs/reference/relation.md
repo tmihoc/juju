@@ -15,17 +15,11 @@ In Juju, a **relation** is a connection an {ref}`application <application>` supp
 
 ## Relation taxonomy
 
-```{figure} relation-taxonomy.svg
-  :figclass: only-light
-  :align: center
-  :alt: Juju relation taxonomy
-  _A relation is between two applications. When the applications are such that one is principal and one is subordinate, the result is a subordinate relation. When the applications are on two separate models, the result is a cross-model relation. When the applications are identical -- that is, we are speaking of the relation an application has to itself -- the result is a peer relation._
-```
-```{figure} relation-taxonomy.dark.svg
-  :figclass: only-dark
-  :align: center
-  :alt: Juju relation taxonomy
-  _A relation is between two applications. When the applications are such that one is principal and one is subordinate, the result is a subordinate relation. When the applications are on two separate models, the result is a cross-model relation. When the applications are identical -- that is, we are speaking of the relation an application has to itself -- the result is a peer relation._
+```{ggarch}
+:file: ../juju.ggarch
+:view: Relation kinds
+:caption: A relation joins two application endpoints, and the kind of relation depends on the applications. A regular relation joins two applications in one model. A peer relation joins the units of one application to one another. A subordinate relation joins a subordinate application to its principal application. A cross-model relation joins an application in one model to an application in another model.
+:alt: A model holds Application A, Application B, Application D with units D/0 and D/1, and a principal and a subordinate application. Lines connect A to B (regular), D/0 to D/1 (peer), and the principal to the subordinate (subordinate). A line labelled cross-model joins Application B to Application C in a second, separate model.
 ```
 
 (peer-relation)=
@@ -107,16 +101,11 @@ When you create a relation between two applications, this results in the creatio
 
 ### Permissions around relation databags
 
-```{figure} relation-databags.svg
-  :figclass: only-light
-  :align: center
-  :alt: Juju relation databags -- permissions
-```
-```{figure} relation-databags.dark.svg
-  :figclass: only-dark
-  :align: center
-  :alt: Juju relation databags -- permissions
-  _Given a unit involved in a relation, the unit's access to a relation databag depends on whether the relation is peer or not, whether the unit is leader or not, and whether the databag belongs to the unit's application or not._
+```{ggarch}
+:file: ../juju.ggarch
+:slides: Non-peer relation databags | Peer relation databags
+:slide-captions: In a non-peer relation (regular or subordinate), every unit reads and writes its own unit databag and reads the remote application's databags, and any unit reads the local application databag (`relation-get --app`) while only the leader unit (the one unit of an application that Juju elects to act for the whole application) writes it. The figure shows the leader unit. | In a peer relation, every unit reads and writes its own unit databag and reads every other unit's unit databag, and any unit reads the application databag while only the leader unit writes it. The permissions that a non-peer relation gives over the remote application turn inwards to the local application.
+:alt: Two diagrams of databag access. In the first, a leader unit has thick arrows to the local application databag and its own unit databag, and dashed arrows to a remote application databag and a remote unit databag. In the second, a leader unit and another unit each have a thick arrow to their own unit databag and a dashed arrow to the other unit's databag, the leader unit has a thick arrow to the application databag, and the other unit has a dashed arrow to it.
 ```
 
 While the relation is maintained,
@@ -131,3 +120,12 @@ While the relation is maintained,
     - all units can read all of the application's databags. That is, whether leader or not, every unit can read its own unit databag as well as every other unit's unit databag as well as the application databag.
 
 Note that, in peer relations, all permissions related to the remote application are turned inwards and become permissions related to the local application.
+
+## Relation data model
+
+```{ggarch}
+:file: ../juju.ggarch
+:view: Relation data model
+:caption: The controller stores a relation in a `relation` record (with its life, scope, and a flag for suspension) and one `relation_endpoint` record for each application endpoint it joins. Each unit that has entered the relation has a `relation_unit` record that hangs on one endpoint. Databags are rows of key and value pairs: the unit databag of a unit is its `relation_unit_setting` rows, the application databag of an endpoint is its `relation_application_setting` rows, and a hash record for each bag (`relation_unit_settings_hash`, `relation_application_settings_hash`) lets watchers notice a change. Status, ingress and egress network addresses, the archive of settings from units that left, and the departure records hang on the relation itself.
+:alt: An entity-relationship diagram of twelve tables. The relation table is on the left, with relation_status, the two network tables, relation_unit_departure, and relation_unit_setting_archive attached to it. The relation_endpoint table joins it to relation_application_setting and its hash table, and to relation_unit, which has relation_unit_setting and a hash table.
+```

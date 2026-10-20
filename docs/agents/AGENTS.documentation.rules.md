@@ -32,7 +32,7 @@ This file defines the core philosophy and structure for Juju documentation.
 - One reference link per new tool/command demonstrated
 
 **Diagrams:**
-- One model for the whole doc set: `docs/juju.ggarch` (ggarch); declare nodes and edges once, embed views with `{ggarch}`
+- One file for the whole doc set: `docs/juju.ggarch` (ggarch); declare nodes and edges once, embed views with `{ggarch}` (process: [AGENTS.documentation.diagrams.md](AGENTS.documentation.diagrams.md))
 - Never commit rendered SVGs; the docs build renders them. Colour means ownership only (see "Diagrams" below)
 
 **Visual hierarchy:**
@@ -170,7 +170,7 @@ The generated pages are committed, and the docs CI enforces two distinct outcome
 
 Diagrams are drawn from one plain-text model, `docs/juju.ggarch`, with [ggarch](https://github.com/tmihoc/ggarch). The model describes Juju once; each figure is a view of it.
 
-- **One model.** Declare every node and edge once in `docs/juju.ggarch`. A `diagram` or `sequence` view selects what one figure needs, so renaming a node updates every figure. Extend the model when a page needs a new entity; keep to the existing node and edge types.
+- **One file.** Declare every node and edge once in `docs/juju.ggarch` (the file holds the `Juju`, `Schema`, and `Lifecycles` models). A `diagram` or `sequence` view selects what one figure needs, so renaming a node updates every figure. Extend the model when a page needs a new entity; keep to the existing node and edge types.
 - **Embed a view** in a page with the `{ggarch}` directive. `:file:` is relative to the page, `:view:` is the view name, `:caption:` carries the technical detail of the layer the figure shows, defining each term in brackets where it first appears, and `:alt:` describes the picture for readers who cannot see it. Start a caption with its subject and its point, as the example below does, so it reads like every other caption in the docs. The text around the figure stays light and leaves the detail to the caption:
 
   ````text
@@ -187,6 +187,7 @@ Diagrams are drawn from one plain-text model, `docs/juju.ggarch`, with [ggarch](
 - **Preview.** Run `make run` in `docs/`. Edits to a page or to `docs/juju.ggarch` rebuild the affected pages. To validate the model without a full build, run `ggarch check docs/juju.ggarch` from the docs virtualenv (`docs/.venv/bin/ggarch`).
 - **Rendered SVGs stay out of the repository.** The docs build renders them, and reviewers see them in the Read the Docs preview of the PR.
 - **Renderer version.** `docs/requirements.txt` pins ggarch to a full commit SHA. Bump the SHA in the same PR when a diagram needs a newer renderer, and check that the docs build still passes.
+- **Process.** [AGENTS.documentation.diagrams.md](AGENTS.documentation.diagrams.md) is the contributor guide: when a diagram earns its place, tooling setup, adding a view, scaffolding an ERD, embedding, and the review checklist.
 - **Details.** ggarch's [SKILL.md](https://github.com/tmihoc/ggarch/blob/main/SKILL.md) is the authoring guide: file anatomy, node and edge types, positions, sequences, and troubleshooting.
 
 ## How-to Guides

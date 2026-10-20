@@ -33,3 +33,21 @@ A model configuration is a rule or a set of rules that define the behavior of a 
 ```{ibnote}
 See more: {ref}`list-of-model-configuration-keys`,  {ref}`configure-a-model`
 ```
+
+## Model data model
+
+```{ggarch}
+:file: ../juju.ggarch
+:view: Model data model
+:caption: The model database stores a model in a `model` record: its uuid, name, qualifier (the owner namespace of the name), type, cloud, cloud type and region, the credential that the model uses, whether it is the controller model, and the uuid of its controller. Three records point at the model by its uuid: `model_life` holds its life (the stage it is in: alive, dying, or dead), `model_constraint` points at its constraint, and `model_agent` holds the password hash of the model's agent and the algorithm that made it.
+:alt: An entity-relationship diagram of four tables. The model table is in the middle, with model_constraint on its left, model_agent on its right, and model_life below it. Each of the three has a line to the model table through its model_uuid column.
+```
+
+## Model migration
+
+```{ggarch}
+:file: ../juju.ggarch
+:view: Model migration phase
+:caption: A model migration (moving a model from one controller to another, started with `juju migrate`) is driven by the migration master (the worker on the source controller that runs the migration) and always moves through phases in the order shown. In QUIESCE the source controller runs prechecks and waits for the model's agents to stop work. IMPORT transfers the model's data and binaries to the target controller. In VALIDATION the agents check the model against the target, the source checks the machines in the migrated model, and the model is activated on the target. In SUCCESS the agents report that they run against the target and the model's resources move across. LOGTRANSFER copies the model's logs. REAP removes the model from the source and ends in DONE, or in REAPFAILED if the removal fails. A failure in QUIESCE, IMPORT, or VALIDATION (a failed precheck, transfer, validation, machine check, or activation) moves the migration to ABORT, which removes the imported model from the target and ends in ABORTDONE. SUCCESS and later phases have no abort. DONE, REAPFAILED, and ABORTDONE are the terminal phases.
+:alt: A chain of phases from QUIESCE through IMPORT, VALIDATION, SUCCESS, LOGTRANSFER, and REAP, which splits to DONE and REAPFAILED. Arrows labelled abort lead from QUIESCE, IMPORT, and VALIDATION to ABORT, which leads to ABORTDONE.
+```

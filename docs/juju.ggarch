@@ -79,9 +79,58 @@ model "Juju" {
     bare_applications [type: external, label: "Applications", deployed: true,
                        collective: bare_node]
 
+    // High availability on machine clouds: every controller machine runs the
+    // API server, the dbaccessor worker and one Dqlite node. The views stamp
+    // the machine as many times as the controller has machines.
+    ha_machine [type: node, label: "Controller machine", deployed: true] {
+      ha_api      [type: juju-software, label: "API server"]
+      ha_dbworker [type: juju-software, label: "dbaccessor worker"]
+      ha_dqlite   [type: database, label: "Dqlite node\n(controller and model\ndatabases)"]
+    }
+    ha_callers [type: juju-software, label: "Clients and agents"]
+
+    // Relation kinds. A relation joins two application endpoints; a peer
+    // relation joins an application to itself, a subordinate relation joins a
+    // subordinate to its principal, a cross-model relation reaches an
+    // application in another model.
+    rel_model [type: entity, label: "Model"] {
+      rel_a         [type: entity, label: "Application A"]
+      rel_peer      [type: entity, label: "Application D"] {
+        rel_peer_0  [type: unit, label: "D/0"]
+        rel_peer_1  [type: unit, label: "D/1"]
+      }
+      rel_b         [type: entity, label: "Application B"]
+      rel_principal [type: entity, label: "Principal\napplication"]
+      rel_sub       [type: entity, label: "Subordinate\napplication"]
+    }
+    rel_other_model [type: entity, label: "Other model"] {
+      rel_remote [type: entity, label: "Application C"]
+    }
+
+    // Relation databags as one unit sees them.
+    db_local [type: entity, label: "Local application"] {
+      db_app_bag [type: record, label: "Local application\ndatabag"]
+      db_leader  [type: unit, label: "Leader unit"]
+      db_leader_bag [type: record, label: "Leader's unit\ndatabag"]
+      db_other   [type: unit, label: "Other unit"]
+      db_other_bag [type: record, label: "Other unit's\ndatabag"]
+    }
+    db_remote [type: entity, label: "Remote application"] {
+      db_remote_app_bag [type: record, label: "Remote application\ndatabag"]
+      db_remote_unit [type: unit, label: "Remote unit"]
+      db_remote_bag [type: record, label: "Remote unit\ndatabag"]
+    }
+
     // Two unit agents, for integration.
     agent_foo [type: juju-software, label: "Unit agent\n(foo/0)"]
     agent_bar [type: juju-software, label: "Unit agent\n(bar/0)"]
+
+    // The tutorial's chat service: three applications that do not form a
+    // whole. Each is an abstraction with the Juju mark: a unit agent and a
+    // charm run behind it.
+    mattermost [type: charmed-entity, label: "Mattermost"]
+    postgresql [type: charmed-entity, label: "PostgreSQL"]
+    certs      [type: charmed-entity, label: "Certs"]
   }
 
   edges {
@@ -109,6 +158,37 @@ model "Juju" {
     controller -> cloud      [type: api,    label: "gets nodes from"]
     agent_foo  -> controller [type: stream, label: "watches"]
     agent_bar  -> controller [type: stream, label: "watches"]
+
+    // The tutorial: the unit agents of the chat applications watch the
+    // controller, as every unit agent does.
+    mattermost -> controller [type: stream, label: "unit agents watch"]
+    postgresql -> controller [type: stream, label: "unit agents watch"]
+    certs      -> controller [type: stream, label: "unit agents watch"]
+
+    // High availability
+    ha_callers  -> ha_api      [type: api,     label: "connect to any"]
+    ha_api      -> ha_dbworker [type: ipc,     label: "gets databases from"]
+    ha_dbworker -> ha_dqlite   [type: control, label: "runs and clusters"]
+    ha_dqlite   -> ha_dqlite   [type: stream,  label: "Raft", pairing: mesh]
+
+    // Relation kinds
+    rel_a         -> rel_b         [type: association, label: "regular"]
+    rel_peer_0    -> rel_peer_1    [type: association, label: "peer"]
+    rel_sub       -> rel_principal [type: association, label: "subordinate"]
+    rel_remote    -> rel_b         [type: association, label: "cross-model"]
+
+    // Relation databags
+    db_leader -> db_app_bag        [type: writes, label: "reads and writes"]
+    db_leader -> db_leader_bag     [type: writes, label: "reads and writes"]
+    db_other  -> db_other_bag      [type: writes, label: "reads and writes"]
+    db_other  -> db_app_bag        [type: reads,  label: "reads"]
+    db_leader -> db_other_bag      [type: reads,  label: "reads"]
+    db_other  -> db_leader_bag     [type: reads,  label: "reads"]
+    db_leader -> db_remote_app_bag [type: reads,  label: "reads"]
+    db_other  -> db_remote_app_bag [type: reads,  label: "reads"]
+    db_leader -> db_remote_bag     [type: reads,  label: "reads"]
+    db_other  -> db_remote_bag     [type: reads,  label: "reads"]
+    db_remote_unit -> db_remote_bag [type: writes, label: "reads and writes"]
 
     client -> ssh_gateway [type: stream, label: "outer SSH tunnel"]
     client -> ssh_session [type: stream, label: "inner SSH session"]
@@ -212,7 +292,598 @@ model "Juju" {
     }
   }
 
+  style {
+    extends: juju
+    edge association { arrowhead: none }
+    edge writes { stroke-width: 2 }
+    edge reads { stroke-dash: "3,3" }
+  }
+}
+
+// The data model: the tables behind the reference pages, scaffolded from the
+// 4.1 DDL by experiments/e45/build_schema.py (`ggarch scaffold model.ddl --db
+// model --tables ...`). The scaffold drops quoted column names, so each "key"
+// column is added by hand.
+model "Schema" {
+
+  nodes {
+    application [type: record, label: "application",
+                 ground: "model:application"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        name [label: "name", type: "text"]
+        life_id [label: "life_id", type: "int", fk: true]
+        charm_uuid [label: "charm_uuid", type: "text", fk: true]
+        charm_modified_version [label: "charm_modified_version", type: "int"]
+        charm_upgrade_on_error [label: "charm_upgrade_on_error", type: "bool", null: true]
+        space_uuid [label: "space_uuid", type: "text", fk: true]
+      }
+    }
+
+    application_endpoint [type: record, label: "application_endpoint",
+                 ground: "model:application_endpoint"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        application_uuid [label: "application_uuid", type: "text", fk: true]
+        space_uuid [label: "space_uuid", type: "text", fk: true, null: true]
+        charm_relation_uuid [label: "charm_relation_uuid", type: "text", fk: true]
+      }
+    }
+
+    architecture [type: record, label: "architecture",
+                 ground: "model:architecture"] {
+      fields {
+        id [label: "id", type: "int", pk: true, null: true]
+        name [label: "name", type: "text"]
+      }
+    }
+
+    charm [type: record, label: "charm",
+                 ground: "model:charm"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        archive_path [label: "archive_path", type: "text", null: true]
+        object_store_uuid [label: "object_store_uuid", type: "text", fk: true, null: true]
+        available [label: "available", type: "bool", null: true]
+        version [label: "version", type: "text", null: true]
+        lxd_profile [label: "lxd_profile", type: "text", null: true]
+        source_id [label: "source_id", type: "int", fk: true]
+        revision [label: "revision", type: "int"]
+        architecture_id [label: "architecture_id", type: "int", fk: true, null: true]
+        reference_name [label: "reference_name", type: "text"]
+        create_time [label: "create_time", type: "datetime"]
+      }
+    }
+
+    charm_relation [type: record, label: "charm_relation",
+                 ground: "model:charm_relation"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        charm_uuid [label: "charm_uuid", type: "text", fk: true]
+        name [label: "name", type: "text"]
+        role_id [label: "role_id", type: "int", fk: true]
+        scope_id [label: "scope_id", type: "int", fk: true]
+        interface [label: "interface", type: "text", null: true]
+        optional [label: "optional", type: "bool", null: true]
+        capacity [label: "capacity", type: "int", null: true]
+      }
+    }
+
+    charm_relation_role [type: record, label: "charm_relation_role",
+                 ground: "model:charm_relation_role"] {
+      fields {
+        id [label: "id", type: "int", pk: true, null: true]
+        name [label: "name", type: "text"]
+      }
+    }
+
+    charm_relation_scope [type: record, label: "charm_relation_scope",
+                 ground: "model:charm_relation_scope"] {
+      fields {
+        id [label: "id", type: "int", pk: true, null: true]
+        name [label: "name", type: "text"]
+      }
+    }
+
+    charm_source [type: record, label: "charm_source",
+                 ground: "model:charm_source"] {
+      fields {
+        id [label: "id", type: "int", pk: true, null: true]
+        name [label: "name", type: "text"]
+      }
+    }
+
+    life [type: record, label: "life",
+                 ground: "model:life"] {
+      fields {
+        id [label: "id", type: "int", pk: true, null: true]
+        value [label: "value", type: "text"]
+      }
+    }
+
+    machine [type: record, label: "machine",
+                 ground: "model:machine"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        name [label: "name", type: "text"]
+        net_node_uuid [label: "net_node_uuid", type: "text", fk: true]
+        life_id [label: "life_id", type: "int", fk: true]
+        nonce [label: "nonce", type: "text", null: true]
+        password_hash_algorithm_id [label: "password_hash_algorithm_id", type: "text", fk: true, null: true]
+        password_hash [label: "password_hash", type: "text", null: true]
+        force_destroyed [label: "force_destroyed", type: "bool", null: true]
+        agent_started_at [label: "agent_started_at", type: "datetime", null: true]
+        hostname [label: "hostname", type: "text", null: true]
+        keep_instance [label: "keep_instance", type: "bool", null: true]
+      }
+    }
+
+    model [type: record, label: "model",
+                 ground: "model:model"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        controller_uuid [label: "controller_uuid", type: "text"]
+        name [label: "name", type: "text"]
+        qualifier [label: "qualifier", type: "text"]
+        type [label: "type", type: "text"]
+        cloud [label: "cloud", type: "text"]
+        cloud_type [label: "cloud_type", type: "text"]
+        cloud_region [label: "cloud_region", type: "text", null: true]
+        credential_owner [label: "credential_owner", type: "text", null: true]
+        credential_name [label: "credential_name", type: "text", null: true]
+        is_controller_model [label: "is_controller_model", type: "bool", null: true]
+      }
+    }
+
+    model_agent [type: record, label: "model_agent",
+                 ground: "model:model_agent"] {
+      fields {
+        model_uuid [label: "model_uuid", type: "text", fk: true]
+        password_hash_algorithm_id [label: "password_hash_algorithm_id", type: "int", fk: true, null: true]
+        password_hash [label: "password_hash", type: "text", null: true]
+      }
+    }
+
+    model_constraint [type: record, label: "model_constraint",
+                 ground: "model:model_constraint"] {
+      fields {
+        model_uuid [label: "model_uuid", type: "text", pk: true, fk: true]
+        constraint_uuid [label: "constraint_uuid", type: "text"]
+      }
+    }
+
+    model_life [type: record, label: "model_life",
+                 ground: "model:model_life"] {
+      fields {
+        model_uuid [label: "model_uuid", type: "text", pk: true, fk: true]
+        life_id [label: "life_id", type: "text", fk: true]
+      }
+    }
+
+    net_node [type: record, label: "net_node",
+                 ground: "model:net_node"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+      }
+    }
+
+    object_store_metadata [type: record, label: "object_store_metadata",
+                 ground: "model:object_store_metadata"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        sha_256 [label: "sha_256", type: "text"]
+        sha_384 [label: "sha_384", type: "text"]
+        size [label: "size", type: "int"]
+      }
+    }
+
+    object_store_metadata_path [type: record, label: "object_store_metadata_path",
+                 ground: "model:object_store_metadata_path"] {
+      fields {
+        path [label: "path", type: "text", pk: true]
+        metadata_uuid [label: "metadata_uuid", type: "text", fk: true]
+      }
+    }
+
+    operation [type: record, label: "operation",
+                 ground: "model:operation"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        operation_id [label: "operation_id", type: "int"]
+        summary [label: "summary", type: "text", null: true]
+        enqueued_at [label: "enqueued_at", type: "timestamp"]
+        started_at [label: "started_at", type: "timestamp", null: true]
+        completed_at [label: "completed_at", type: "timestamp", null: true]
+        parallel [label: "parallel", type: "bool", null: true]
+        execution_group [label: "execution_group", type: "text", null: true]
+      }
+    }
+
+    operation_action [type: record, label: "operation_action",
+                 ground: "model:operation_action"] {
+      fields {
+        operation_uuid [label: "operation_uuid", type: "text", pk: true, fk: true]
+        charm_uuid [label: "charm_uuid", type: "text"]
+        charm_action_key [label: "charm_action_key", type: "text"]
+      }
+    }
+
+    operation_machine_task [type: record, label: "operation_machine_task",
+                 ground: "model:operation_machine_task"] {
+      fields {
+        task_uuid [label: "task_uuid", type: "text", fk: true]
+        machine_uuid [label: "machine_uuid", type: "text", fk: true]
+      }
+    }
+
+    operation_parameter [type: record, label: "operation_parameter",
+                 ground: "model:operation_parameter"] {
+      fields {
+        key [label: "key", type: "text", pk: true]
+        operation_uuid [label: "operation_uuid", type: "text", fk: true]
+        value [label: "value", type: "text"]
+      }
+    }
+
+    operation_task [type: record, label: "operation_task",
+                 ground: "model:operation_task"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        operation_uuid [label: "operation_uuid", type: "text", fk: true]
+        task_id [label: "task_id", type: "text"]
+        enqueued_at [label: "enqueued_at", type: "datetime"]
+        started_at [label: "started_at", type: "datetime", null: true]
+        completed_at [label: "completed_at", type: "datetime", null: true]
+      }
+    }
+
+    operation_task_log [type: record, label: "operation_task_log",
+                 ground: "model:operation_task_log"] {
+      fields {
+        task_uuid [label: "task_uuid", type: "text", fk: true]
+        content [label: "content", type: "text"]
+        created_at [label: "created_at", type: "timestamp"]
+      }
+    }
+
+    operation_task_output [type: record, label: "operation_task_output",
+                 ground: "model:operation_task_output"] {
+      fields {
+        task_uuid [label: "task_uuid", type: "text", pk: true, fk: true]
+        store_path [label: "store_path", type: "text", fk: true]
+      }
+    }
+
+    operation_task_status [type: record, label: "operation_task_status",
+                 ground: "model:operation_task_status"] {
+      fields {
+        task_uuid [label: "task_uuid", type: "text", pk: true, fk: true]
+        status_id [label: "status_id", type: "int", fk: true]
+        message [label: "message", type: "text", null: true]
+        updated_at [label: "updated_at", type: "datetime", null: true]
+      }
+    }
+
+    operation_task_status_value [type: record, label: "operation_task_status_value",
+                 ground: "model:operation_task_status_value"] {
+      fields {
+        id [label: "id", type: "int", pk: true, null: true]
+        status [label: "status", type: "text"]
+      }
+    }
+
+    operation_unit_task [type: record, label: "operation_unit_task",
+                 ground: "model:operation_unit_task"] {
+      fields {
+        task_uuid [label: "task_uuid", type: "text", fk: true]
+        unit_uuid [label: "unit_uuid", type: "text", fk: true]
+      }
+    }
+
+    password_hash_algorithm [type: record, label: "password_hash_algorithm",
+                 ground: "model:password_hash_algorithm"] {
+      fields {
+        id [label: "id", type: "int", pk: true, null: true]
+        name [label: "name", type: "text"]
+      }
+    }
+
+    relation [type: record, label: "relation",
+                 ground: "model:relation"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        life_id [label: "life_id", type: "int", fk: true]
+        relation_id [label: "relation_id", type: "int"]
+        suspended [label: "suspended", type: "bool", null: true]
+        suspended_reason [label: "suspended_reason", type: "text", null: true]
+        scope_id [label: "scope_id", type: "int", fk: true]
+      }
+    }
+
+    relation_application_setting [type: record, label: "relation_application_setting",
+                 ground: "model:relation_application_setting"] {
+      fields {
+        key [label: "key", type: "text", pk: true]
+        relation_endpoint_uuid [label: "relation_endpoint_uuid", type: "text", fk: true]
+        value [label: "value", type: "text"]
+      }
+    }
+
+    relation_application_settings_hash [type: record, label: "relation_application_settings_hash",
+                 ground: "model:relation_application_settings_hash"] {
+      fields {
+        relation_endpoint_uuid [label: "relation_endpoint_uuid", type: "text", pk: true, fk: true]
+        sha256 [label: "sha256", type: "text"]
+      }
+    }
+
+    relation_endpoint [type: record, label: "relation_endpoint",
+                 ground: "model:relation_endpoint"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        relation_uuid [label: "relation_uuid", type: "text", fk: true]
+        endpoint_uuid [label: "endpoint_uuid", type: "text", fk: true]
+      }
+    }
+
+    relation_network_egress [type: record, label: "relation_network_egress",
+                 ground: "model:relation_network_egress"] {
+      fields {
+        relation_uuid [label: "relation_uuid", type: "text", fk: true]
+        cidr [label: "cidr", type: "text"]
+      }
+    }
+
+    relation_network_ingress [type: record, label: "relation_network_ingress",
+                 ground: "model:relation_network_ingress"] {
+      fields {
+        relation_uuid [label: "relation_uuid", type: "text", fk: true]
+        cidr [label: "cidr", type: "text"]
+      }
+    }
+
+    relation_status [type: record, label: "relation_status",
+                 ground: "model:relation_status"] {
+      fields {
+        relation_uuid [label: "relation_uuid", type: "text", pk: true, fk: true]
+        relation_status_type_id [label: "relation_status_type_id", type: "text", fk: true]
+        message [label: "message", type: "text", null: true]
+        updated_at [label: "updated_at", type: "datetime", null: true]
+      }
+    }
+
+    relation_status_type [type: record, label: "relation_status_type",
+                 ground: "model:relation_status_type"] {
+      fields {
+        id [label: "id", type: "text", pk: true]
+        name [label: "name", type: "text"]
+      }
+    }
+
+    relation_unit [type: record, label: "relation_unit",
+                 ground: "model:relation_unit"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        relation_endpoint_uuid [label: "relation_endpoint_uuid", type: "text", fk: true]
+        unit_uuid [label: "unit_uuid", type: "text", fk: true]
+      }
+    }
+
+    relation_unit_departure [type: record, label: "relation_unit_departure",
+                 ground: "model:relation_unit_departure"] {
+      fields {
+        relation_uuid [label: "relation_uuid", type: "text", fk: true]
+        relation_endpoint_uuid [label: "relation_endpoint_uuid", type: "text"]
+        unit_uuid [label: "unit_uuid", type: "text"]
+        unit_name [label: "unit_name", type: "text"]
+      }
+    }
+
+    relation_unit_setting [type: record, label: "relation_unit_setting",
+                 ground: "model:relation_unit_setting"] {
+      fields {
+        key [label: "key", type: "text", pk: true]
+        relation_unit_uuid [label: "relation_unit_uuid", type: "text", fk: true]
+        value [label: "value", type: "text"]
+      }
+    }
+
+    relation_unit_setting_archive [type: record, label: "relation_unit_setting_archive",
+                 ground: "model:relation_unit_setting_archive"] {
+      fields {
+        key [label: "key", type: "text", pk: true]
+        relation_uuid [label: "relation_uuid", type: "text", fk: true]
+        unit_name [label: "unit_name", type: "text"]
+        value [label: "value", type: "text", null: true]
+      }
+    }
+
+    relation_unit_settings_hash [type: record, label: "relation_unit_settings_hash",
+                 ground: "model:relation_unit_settings_hash"] {
+      fields {
+        relation_unit_uuid [label: "relation_unit_uuid", type: "text", pk: true, fk: true]
+        sha256 [label: "sha256", type: "text"]
+      }
+    }
+
+    space [type: record, label: "space",
+                 ground: "model:space"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        name [label: "name", type: "text"]
+      }
+    }
+
+    unit [type: record, label: "unit",
+                 ground: "model:unit"] {
+      fields {
+        uuid [label: "uuid", type: "text", pk: true]
+        name [label: "name", type: "text"]
+        life_id [label: "life_id", type: "int", fk: true]
+        application_uuid [label: "application_uuid", type: "text", fk: true]
+        net_node_uuid [label: "net_node_uuid", type: "text", fk: true]
+        charm_uuid [label: "charm_uuid", type: "text", fk: true]
+        password_hash_algorithm_id [label: "password_hash_algorithm_id", type: "text", fk: true, null: true]
+        password_hash [label: "password_hash", type: "text", null: true]
+      }
+    }
+
+  }
+
+  edges {
+    application.life_id -> life.id [type: data]
+    application.charm_uuid -> charm.uuid [type: data]
+    application.space_uuid -> space.uuid [type: data]
+    application_endpoint.application_uuid -> application.uuid [type: data]
+    application_endpoint.space_uuid -> space.uuid [type: data]
+    application_endpoint.charm_relation_uuid -> charm_relation.uuid [type: data]
+    charm.source_id -> charm_source.id [type: data]
+    charm.architecture_id -> architecture.id [type: data]
+    charm.object_store_uuid -> object_store_metadata.uuid [type: data]
+    charm_relation.charm_uuid -> charm.uuid [type: data]
+    charm_relation.role_id -> charm_relation_role.id [type: data]
+    charm_relation.scope_id -> charm_relation_scope.id [type: data]
+    machine.net_node_uuid -> net_node.uuid [type: data]
+    machine.life_id -> life.id [type: data]
+    machine.password_hash_algorithm_id -> password_hash_algorithm.id [type: data]
+    model_agent.model_uuid -> model.uuid [type: data]
+    model_agent.password_hash_algorithm_id -> password_hash_algorithm.id [type: data]
+    model_constraint.model_uuid -> model.uuid [type: data]
+    model_life.model_uuid -> model.uuid [type: data]
+    model_life.life_id -> life.id [type: data]
+    object_store_metadata_path.metadata_uuid -> object_store_metadata.uuid [type: data]
+    operation_action.operation_uuid -> operation.uuid [type: data]
+    operation_machine_task.task_uuid -> operation_task.uuid [type: data]
+    operation_machine_task.machine_uuid -> machine.uuid [type: data]
+    operation_parameter.operation_uuid -> operation.uuid [type: data]
+    operation_task.operation_uuid -> operation.uuid [type: data]
+    operation_task_log.task_uuid -> operation_task.uuid [type: data]
+    operation_task_output.task_uuid -> operation_task.uuid [type: data]
+    operation_task_output.store_path -> object_store_metadata_path.path [type: data]
+    operation_task_status.task_uuid -> operation_task.uuid [type: data]
+    operation_task_status.status_id -> operation_task_status_value.id [type: data]
+    operation_unit_task.task_uuid -> operation_task.uuid [type: data]
+    operation_unit_task.unit_uuid -> unit.uuid [type: data]
+    relation.life_id -> life.id [type: data]
+    relation.scope_id -> charm_relation_scope.id [type: data]
+    relation_application_setting.relation_endpoint_uuid -> relation_endpoint.uuid [type: data]
+    relation_application_settings_hash.relation_endpoint_uuid -> relation_endpoint.uuid [type: data]
+    relation_endpoint.relation_uuid -> relation.uuid [type: data]
+    relation_endpoint.endpoint_uuid -> application_endpoint.uuid [type: data]
+    relation_network_egress.relation_uuid -> relation.uuid [type: data]
+    relation_network_ingress.relation_uuid -> relation.uuid [type: data]
+    relation_status.relation_uuid -> relation.uuid [type: data]
+    relation_status.relation_status_type_id -> relation_status_type.id [type: data]
+    relation_unit.unit_uuid -> unit.uuid [type: data]
+    relation_unit.relation_endpoint_uuid -> relation_endpoint.uuid [type: data]
+    relation_unit_departure.relation_uuid -> relation.uuid [type: data]
+    relation_unit_setting.relation_unit_uuid -> relation_unit.uuid [type: data]
+    relation_unit_setting_archive.relation_uuid -> relation.uuid [type: data]
+    relation_unit_settings_hash.relation_unit_uuid -> relation_unit.uuid [type: data]
+    unit.life_id -> life.id [type: data]
+    unit.application_uuid -> application.uuid [type: data]
+    unit.net_node_uuid -> net_node.uuid [type: data]
+    unit.charm_uuid -> charm.uuid [type: data]
+    unit.password_hash_algorithm_id -> password_hash_algorithm.id [type: data]
+  }
+
   style { extends: juju }
+
+}
+
+// The two state machines whose allowed changes the code enforces: the status
+// of a relation (domain/status/status.go, RelationStatusTransitionValid) and
+// the phase of a model migration (core/migration/phase.go, validTransitions).
+model "Lifecycles" {
+
+  nodes {
+    rs_joining [label: "joining"]
+    rs_joined [label: "joined"]
+    rs_broken [label: "broken"]
+    rs_suspending [label: "suspending"]
+    rs_suspended [label: "suspended"]
+    rs_error [label: "error"]
+    mg_quiesce [label: "QUIESCE"]
+    mg_import [label: "IMPORT"]
+    mg_validation [label: "VALIDATION"]
+    mg_success [label: "SUCCESS"]
+    mg_logtransfer [label: "LOGTRANSFER"]
+    mg_reap [label: "REAP"]
+    mg_reapfailed [label: "REAPFAILED"]
+    mg_done [label: "DONE"]
+    mg_abort [label: "ABORT"]
+    mg_abortdone [label: "ABORTDONE"]
+  }
+
+  edges {
+    rs_joining -> rs_joined [type: control]
+    rs_joining -> rs_suspending [type: control]
+    rs_joining -> rs_suspended [type: control]
+    rs_joined -> rs_suspending [type: control]
+    rs_joined -> rs_suspended [type: control]
+    rs_suspending -> rs_joining [type: control]
+    rs_suspending -> rs_joined [type: control]
+    rs_suspending -> rs_suspended [type: control]
+    rs_suspended -> rs_joining [type: control]
+    rs_suspended -> rs_joined [type: control]
+    rs_joined -> rs_broken [type: control]
+    rs_joined -> rs_error [type: control]
+    rs_broken -> rs_error [type: control]
+    rs_error -> rs_joined [type: control]
+    mg_quiesce -> mg_import [type: control]
+    mg_quiesce -> mg_abort [type: control]
+    mg_import -> mg_validation [type: control]
+    mg_import -> mg_abort [type: control]
+    mg_validation -> mg_success [type: control]
+    mg_validation -> mg_abort [type: control]
+    mg_success -> mg_logtransfer [type: control]
+    mg_logtransfer -> mg_reap [type: control]
+    mg_reap -> mg_done [type: control]
+    mg_reap -> mg_reapfailed [type: control]
+    mg_abort -> mg_abortdone [type: control]
+  }
+
+  behaviours {
+    behaviour "relation-status" {
+      rs_joining -> rs_joined: call "set status"
+      rs_joining -> rs_suspending: call "set status"
+      rs_joining -> rs_suspended: call "set status"
+      rs_joined -> rs_suspending: call "set status"
+      rs_joined -> rs_suspended: call "set status"
+      rs_suspending -> rs_joining: call "set status"
+      rs_suspending -> rs_joined: call "set status"
+      rs_suspending -> rs_suspended: call "set status"
+      rs_suspended -> rs_joining: call "set status"
+      rs_suspended -> rs_joined: call "set status"
+      rs_joined -> rs_broken: call "set status" [guard: "from any state"]
+      rs_joined -> rs_error: call "set status" [guard: "from any state; message required"]
+      rs_broken -> rs_error: call "set status" [guard: "message required"]
+      rs_error -> rs_joined: call "set status" [guard: "to any state"]
+    }
+    behaviour "migration-phase" {
+      mg_quiesce -> mg_import: call "next phase"
+      mg_import -> mg_validation: call "next phase"
+      mg_validation -> mg_success: call "next phase"
+      mg_success -> mg_logtransfer: call "next phase"
+      mg_logtransfer -> mg_reap: call "next phase"
+      mg_reap -> mg_done: call "next phase"
+      mg_reap -> mg_reapfailed: call "next phase"
+      mg_quiesce -> mg_abort: call "abort"
+      mg_import -> mg_abort: call "abort"
+      mg_validation -> mg_abort: call "abort"
+      mg_abort -> mg_abortdone: call "next phase"
+    }
+  }
+
+  style { extends: juju }
+}
+
+state "Relation status" from "Lifecycles" {
+  select { behaviour: "relation-status" }
+}
+
+state "Model migration phase" from "Lifecycles" {
+  select { behaviour: "migration-phase" }
 }
 
 diagram "The problem" from "Juju" {
@@ -262,7 +933,224 @@ diagram "The topology" from "Juju" {
   }
 }
 
-sequence "juju add-cloud"      from "Juju" { select { behaviour: "add-cloud" } }
+// The tutorial grows the same picture in three steps: the pieces Juju needs,
+// the user who logs in, and the applications the controller operates.
+diagram "Tutorial setup" from "Juju" {
+  select {
+    nodes: client controller cloud charmhub
+    edges: type api
+    except: client -> cloud
+    except: client -> client
+    labels: hidden
+    sizing: uniform
+  }
+  positions {
+    client   left-of controller gap: 100
+    client   align-middle controller
+    cloud    above controller gap: 80
+    cloud    align-centre controller
+    charmhub below controller gap: 80
+    charmhub align-centre controller
+  }
+}
+
+diagram "Tutorial user" from "Juju" {
+  select {
+    nodes: user client controller cloud charmhub
+    edges: type api
+    except: client -> cloud
+    except: client -> client
+    labels: hidden
+    sizing: uniform
+  }
+  positions {
+    user     left-of client gap: 100
+    user     align-middle client
+    client   left-of controller gap: 100
+    client   align-middle controller
+    cloud    above controller gap: 80
+    cloud    align-centre controller
+    charmhub below controller gap: 80
+    charmhub align-centre controller
+  }
+}
+
+diagram "Tutorial deployment" from "Juju" {
+  select {
+    nodes: user client controller cloud charmhub mattermost postgresql certs
+    edges: type api type stream
+    except: client -> cloud
+    except: client -> client
+    labels: hidden
+    sizing: uniform
+  }
+  positions {
+    user       left-of client gap: 80
+    user       align-middle client
+    client     left-of controller gap: 80
+    client     align-middle controller
+    cloud      above controller gap: 80
+    cloud      align-centre controller
+    charmhub   below controller gap: 80
+    charmhub   align-centre controller
+    postgresql right-of controller gap: 120
+    postgresql align-middle controller
+    mattermost above postgresql gap: 30
+    mattermost align-centre postgresql
+    certs      below postgresql gap: 30
+    certs      align-centre postgresql
+  }
+}
+
+diagram "Controller high availability" from "Juju" {
+  select {
+    nodes: ha_callers ha_machine
+    instances: ha_machine [
+      { id: c0, label: "Controller machine" },
+      { id: c1, label: "Controller machine" },
+      { id: c2, label: "Controller machine" }
+    ]
+    edges: type api type ipc type control type stream
+  }
+  positions {
+    c1 below c0 gap: 40
+    c1 align-centre c0
+    c2 below c1 gap: 40
+    c2 align-centre c1
+    ha_callers left-of c1 gap: 80
+    ha_callers align-middle c1
+  }
+}
+
+diagram "Relation data model" from "Schema" {
+  select {
+    nodes: relation relation_status relation_network_ingress relation_network_egress relation_unit_departure relation_unit_setting_archive relation_endpoint relation_application_setting relation_application_settings_hash relation_unit relation_unit_setting relation_unit_settings_hash
+    edges: type data
+    labels: hidden
+    routing: orthogonal
+  }
+  positions {
+    relation_endpoint right-of relation gap: 90
+    relation_endpoint align-middle relation
+    relation_status above relation gap: 40
+    relation_status align-centre relation
+    relation_unit_setting_archive below relation gap: 40
+    relation_unit_setting_archive align-centre relation
+    relation_network_ingress left-of relation_status gap: 60
+    relation_network_ingress align-middle relation_status
+    relation_network_egress left-of relation gap: 60
+    relation_network_egress align-middle relation
+    relation_unit_departure left-of relation_unit_setting_archive gap: 60
+    relation_unit_departure align-middle relation_unit_setting_archive
+    relation_application_setting above relation_endpoint gap: 40
+    relation_application_setting align-centre relation_endpoint
+    relation_application_settings_hash below relation_endpoint gap: 40
+    relation_application_settings_hash align-centre relation_endpoint
+    relation_unit right-of relation_endpoint gap: 90
+    relation_unit align-middle relation_endpoint
+    relation_unit_setting right-of relation_unit gap: 90
+    relation_unit_setting align-middle relation_application_setting
+    relation_unit_settings_hash right-of relation_unit gap: 90
+    relation_unit_settings_hash align-middle relation_application_settings_hash
+  }
+}
+
+diagram "Action data model" from "Schema" {
+  select {
+    nodes: operation operation_action operation_parameter operation_task operation_task_status operation_task_log operation_task_output operation_unit_task operation_machine_task
+    edges: type data
+    labels: hidden
+    routing: orthogonal
+  }
+  positions {
+    operation_task right-of operation gap: 90
+    operation_task align-middle operation
+    operation_action above operation gap: 40
+    operation_action align-centre operation
+    operation_parameter below operation gap: 40
+    operation_parameter align-centre operation
+    operation_unit_task right-of operation_task gap: 90
+    operation_unit_task align-middle operation_task
+    operation_machine_task below operation_unit_task gap: 40
+    operation_machine_task align-centre operation_unit_task
+    operation_task_status above operation_unit_task gap: 40
+    operation_task_status align-centre operation_unit_task
+    operation_task_log above operation_task gap: 40
+    operation_task_log align-centre operation_task
+    operation_task_output below operation_task gap: 40
+    operation_task_output align-centre operation_task
+  }
+}
+
+diagram "Relation kinds" from "Juju" {
+  select {
+    nodes: rel_model rel_other_model
+    edges: type association
+  }
+  positions {
+    rel_other_model right-of rel_model gap: 120
+    rel_other_model align-middle rel_model
+  }
+}
+
+diagram "Peer relation databags" from "Juju" {
+  select {
+    nodes: db_app_bag db_leader db_leader_bag db_other db_other_bag
+    edges: type writes type reads
+    except: db_leader -> db_remote_app_bag
+    except: db_other -> db_remote_app_bag
+    except: db_leader -> db_remote_bag
+    except: db_other -> db_remote_bag
+    sizing: uniform
+  }
+  positions {
+    db_other below db_leader gap: 90
+    db_other align-centre db_leader
+    db_leader_bag right-of db_leader gap: 200
+    db_leader_bag align-middle db_leader
+    db_other_bag right-of db_other gap: 200
+    db_other_bag align-middle db_other
+    db_app_bag above db_leader_bag gap: 50
+    db_app_bag align-centre db_leader_bag
+  }
+}
+
+diagram "Non-peer relation databags" from "Juju" {
+  select {
+    nodes: db_app_bag db_leader db_leader_bag db_remote_app_bag db_remote_bag
+    edges: type writes type reads
+    sizing: uniform
+  }
+  positions {
+    db_leader_bag right-of db_leader gap: 200
+    db_leader_bag align-middle db_leader
+    db_app_bag above db_leader_bag gap: 50
+    db_app_bag align-centre db_leader_bag
+    db_remote_app_bag right-of db_app_bag gap: 200
+    db_remote_app_bag align-middle db_app_bag
+    db_remote_bag right-of db_leader_bag gap: 200
+    db_remote_bag align-middle db_leader_bag
+  }
+}
+
+diagram "Model data model" from "Schema" {
+  select {
+    nodes: model model_agent model_constraint model_life
+    edges: type data
+    labels: hidden
+    routing: orthogonal
+  }
+  positions {
+    model_agent right-of model gap: 90
+    model_agent align-middle model
+    model_constraint left-of model gap: 90
+    model_constraint align-middle model
+    model_life below model gap: 50
+    model_life align-centre model
+  }
+}
+
+sequence "juju add-cloud"      from "Juju"{ select { behaviour: "add-cloud" } }
 sequence "juju add-credential" from "Juju" { select { behaviour: "add-credential" } }
 sequence "juju bootstrap"      from "Juju" { select { behaviour: "bootstrap" } }
 sequence "juju add-k8s"        from "Juju" { select { behaviour: "add-k8s" } }

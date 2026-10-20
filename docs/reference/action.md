@@ -50,3 +50,12 @@ Actions operate in an execution environment similar to a {ref}`hook <hook-execut
 
 * `JUJU_ACTION_NAME` holds the name of the action.
 * `JUJU_ACTION_UUID` holds the UUID of the action.
+
+## Action data model
+
+```{ggarch}
+:file: ../juju.ggarch
+:view: Action data model
+:caption: The controller stores one run of an action in an `operation` record (with its summary, timestamps, parallel flag, and execution group), with the action it runs in `operation_action` and its parameters in `operation_parameter`. Each target of the operation gets a `operation_task` record, which hangs on the operation and holds that target's timestamps. A task has a status record, log records, and an output record that points at the stored output, and it is a unit task or a machine task by which of `operation_unit_task` and `operation_machine_task` points at it.
+:alt: An entity-relationship diagram of nine tables. The operation table has operation_action above it, operation_parameter below it, and operation_task to its right. The operation_task table has operation_task_log above it and operation_task_output below it, and operation_task_status, operation_unit_task, and operation_machine_task to its right.
+```
